@@ -1,0 +1,24 @@
+name: Repository CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  repository-check:
+    name: Basic repository checks
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Verify README exists
+        run: test -s README.md
+
+      - name: Confirm workflow execution
+        run: echo "Repository checks passed. Project-specific tests will be added when the source code is available."
