@@ -73,7 +73,7 @@ class LinuxMediaController:
     def __init__(self, mixer: str = "Master", step: int = 10) -> None:
         self.mixer = mixer
         self.step = max(0, min(100, step))
-        self._previous_volume = 0
+        self._previous_volume: int | None = None
 
     @property
     def volume(self) -> int:
@@ -107,8 +107,9 @@ class LinuxMediaController:
 
     def unmute(self) -> None:
         self._run("amixer", "set", self.mixer, "unmute")
-        if self._previous_volume:
+        if self._previous_volume is not None:
             self.volume = self._previous_volume
+            self._previous_volume = None
 
     def play(self) -> None:
         self._run("playerctl", "play")
@@ -131,3 +132,77 @@ class LinuxMediaController:
         except subprocess.CalledProcessError as exc:
             detail = exc.stderr.strip() or "command failed"
             raise RuntimeError(f"{' '.join(command)}: {detail}") from exc
+
+
+class WindowsMediaController:
+    """Controls Windows audio through pycaw and playback through media keys."""
+
+    _MEDIA_KEYS = {"play": 0xB3, "next": 0xB0, "previous": 0xB1}
+    _KEYEVENTF_KEYUP = 0x0002
+
+    def __init__(self, step: int = 10, endpoint=None, user32=None) -> None:
+        self.step = max(0, min(100, step))
+        self._previous_volume: int | None = None
+        self._endpoint = endpoint or self._load_endpoint()
+        if user32 is None:
+            try:
+                import ctypes
+                user32 = ctypes.windll.user32
+            except (AttributeError, ImportError) as exc:
+                raise RuntimeError("Windows media controls require Windows") from exc
+        self._user32 = user32
+
+    @staticmethod
+    def _load_endpoint():
+        try:
+            from pycaw.pycaw import AudioUtilities
+            return AudioUtilities.GetSpeakers().EndpointVolume
+        except ImportError as exc:
+            raise RuntimeError("Install pycaw to use Windows media controls") from exc
+
+    @property
+    def volume(self) -> int:
+        return round(self._endpoint.GetMasterVolumeLevelScalar() * 100)
+
+    @volume.setter
+    def volume(self, value: int) -> None:
+        value = max(0, min(100, value))
+        self._endpoint.SetMasterVolumeLevelScalar(value / 100, None)
+
+    @property
+    def muted(self) -> bool:
+        return bool(self._endpoint.GetMute())
+
+    def volume_up(self) -> None:
+        self.volume = self.volume + self.step
+
+    def volume_down(self) -> None:
+        self.volume = self.volume - self.step
+
+    def mute(self) -> None:
+        if not self.muted:
+            self._previous_volume = self.volume
+        self._endpoint.SetMute(1, None)
+
+    def unmute(self) -> None:
+        self._endpoint.SetMute(0, None)
+        if self._previous_volume is not None:
+            self.volume = self._previous_volume
+            self._previous_volume = None
+
+    def play(self) -> None:
+        self._media_key("play")
+
+    def pause(self) -> None:
+        self._media_key("play")
+
+    def next(self) -> None:
+        self._media_key("next")
+
+    def previous(self) -> None:
+        self._media_key("previous")
+
+    def _media_key(self, name: str) -> None:
+        key = self._MEDIA_KEYS[name]
+        self._user32.keybd_event(key, 0, 0, 0)
+        self._user32.keybd_event(key, 0, self._KEYEVENTF_KEYUP, 0)

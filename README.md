@@ -3,7 +3,7 @@
 **Team:** Team 15  
 **Repository:** [Voice-Assistant-for-Multimedia-Controls-VAMC](https://github.com/SamarthRamesha/Voice-Assistant-for-Multimedia-Controls-VAMC)  
 **Requirements baseline:** VAMC SRS v1.0  
-**Project status:** Planning and repository setup completed; application implementation pending.
+**Project status:** Core voice, playback, track-navigation and camera-gesture controls implemented.
 
 ---
 
@@ -36,11 +36,12 @@ The following work has been completed:
 - [x] Committed the workflow to the `main` branch.
 - [x] Verified that the initial GitHub Actions run passed.
 
-### What is not implemented yet
+### Current implementation
 
-The repository currently contains a basic README and the initial GitHub Actions workflow. The actual application code, application-specific automated tests, and working multimedia controls still need to be implemented.
-
-The current GitHub Actions workflow checks that `README.md` exists and is non-empty. **It does not yet build or test the VAMC application.** Project-specific checks must be added when the implementation stack and application structure are established.
+The repository includes modular Python application code, mock and Linux media adapters,
+automated tests, voice-command mapping, track navigation and camera gesture controls.
+The camera and Linux media paths still require the corresponding hardware and system
+dependencies for physical validation.
 
 ## 3. Project Requirements
 
@@ -96,6 +97,45 @@ The following technologies are suggested by the existing project specification. 
 | Hardware interface | Raspberry Pi GPIO or the appropriate ESP32 interface |
 | Testing | pytest; suitable integration and system tests |
 | Version control and CI | GitHub, GitHub Issues, Pull Requests and GitHub Actions |
+
+### Running the application
+
+Create or activate the project environment, install dependencies, and run from the
+repository root:
+
+```bash
+source env/bin/activate
+pip install -r requirements.txt
+PYTHONPATH=src python -m vamc
+```
+
+Use `--real` for Linux `amixer` and `playerctl` controls. Use `--gestures` to read
+camera frames through OpenCV and MediaPipe:
+
+```bash
+PYTHONPATH=src python -m vamc --real --gestures
+```
+
+On Windows, create or activate the environment with PowerShell and use the native
+Windows media adapter:
+
+```powershell
+py -m venv env
+.\env\Scripts\Activate.ps1
+py -m pip install -r requirements.txt
+$env:PYTHONPATH = "src"
+py -m vamc --real
+```
+
+The Windows adapter uses `pycaw` for volume and mute restoration and Windows media
+keys for play, pause and track navigation. Camera gesture mode is started with
+`py -m vamc --real --gestures` after a compatible camera is connected.
+
+Run the automated checks with:
+
+```bash
+PYTHONPATH=src pytest -q
+```
 
 ### Important implementation rule
 

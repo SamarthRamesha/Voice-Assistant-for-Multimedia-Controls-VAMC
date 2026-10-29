@@ -3,7 +3,8 @@ import pytest
 from vamc.commands import CommandIntent, IntentMapper
 from vamc.controller import VAMCController
 from vamc.feedback import FeedbackState, MemoryFeedback
-from vamc.media import LinuxMediaController, MockMediaController
+from vamc.gestures import CameraGestureRunner, Gesture, GestureClassifier, SwipeDetector
+from vamc.media import LinuxMediaController, MockMediaController, WindowsMediaController
 from vamc.voice import PushToTalk, TextRecognizer, VoiceActivation, WakeWordDetector
 
 
@@ -112,3 +113,170 @@ def test_linux_media_controller_uses_safe_commands(monkeypatch):
         ("amixer", "set", "Master", "mute"),
         ("playerctl", "play"),
     ]
+
+
+def test_linux_media_controller_restores_volume_after_unmute(monkeypatch):
+    calls = []
+
+    class Result:
+        stdout = "Front Left: Playback 35 [35%] [on]\n"
+
+    def fake_run(command, **_kwargs):
+        calls.append(command)
+        return Result()
+
+    monkeypatch.setattr("vamc.media.subprocess.run", fake_run)
+    media = LinuxMediaController()
+    media.mute()
+    media.unmute()
+    assert calls == [
+        ("amixer", "get", "Master"),
+        ("amixer", "get", "Master"),
+        ("amixer", "set", "Master", "mute"),
+        ("amixer", "set", "Master", "unmute"),
+        ("amixer", "set", "Master", "35%"),
+    ]
+
+
+def test_linux_media_controller_supports_track_navigation(monkeypatch):
+    calls = []
+
+    def fake_run(command, **_kwargs):
+        calls.append(command)
+
+        class Result:
+            stdout = ""
+
+        return Result()
+
+    monkeypatch.setattr("vamc.media.subprocess.run", fake_run)
+    media = LinuxMediaController()
+    media.next()
+    media.previous()
+    assert calls == [
+        ("playerctl", "next"),
+        ("playerctl", "previous"),
+    ]
+
+
+def test_windows_media_controller_restores_volume_and_sends_media_keys():
+    class Endpoint:
+        def __init__(self):
+            self.level = 0.35
+            self.mute = False
+
+        def GetMasterVolumeLevelScalar(self):
+            return self.level
+
+        def SetMasterVolumeLevelScalar(self, value, _context):
+            self.level = value
+
+        def GetMute(self):
+            return self.mute
+
+        def SetMute(self, value, _context):
+            self.mute = bool(value)
+
+    class User32:
+        def __init__(self):
+            self.events = []
+
+        def keybd_event(self, key, _scan, flags, _extra):
+            self.events.append((key, flags))
+
+    endpoint = Endpoint()
+    user32 = User32()
+    media = WindowsMediaController(endpoint=endpoint, user32=user32)
+    media.mute()
+    media.unmute()
+    media.play()
+    media.pause()
+    media.next()
+    media.previous()
+    assert media.volume == 35
+    assert not media.muted
+    assert user32.events == [
+        (0xB3, 0), (0xB3, 0x0002),
+        (0xB3, 0), (0xB3, 0x0002),
+        (0xB0, 0), (0xB0, 0x0002),
+        (0xB1, 0), (0xB1, 0x0002),
+    ]
+
+
+def test_camera_gesture_runner_forwards_rgb_landmarks_and_releases_capture():
+    class Capture:
+        def __init__(self):
+            self.released = False
+
+        def read(self):
+            return True, "frame"
+
+        def release(self):
+            self.released = True
+
+    class Cv2:
+        COLOR_BGR2RGB = "rgb"
+
+        def __init__(self):
+            self.converted = []
+
+        def cvtColor(self, frame, code):
+            self.converted.append((frame, code))
+            return "rgb frame"
+
+    class Landmarker:
+        def __init__(self):
+            self.images = []
+
+        def detect(self, image):
+            self.images.append(image)
+            return [(0.2, 0.5)]
+
+    capture = Capture()
+    cv2 = Cv2()
+    landmarker = Landmarker()
+    received = []
+    runner = CameraGestureRunner(received.append, landmarker=landmarker, capture=capture, cv2_module=cv2)
+    assert runner.run(max_frames=2) == 2
+    assert cv2.converted == [("frame", "rgb"), ("frame", "rgb")]
+    assert landmarker.images == ["rgb frame", "rgb frame"]
+    assert received == [[(0.2, 0.5)], [(0.2, 0.5)]]
+    assert capture.released
+
+
+def make_landmarks(tip_y: float) -> list[tuple[float, float]]:
+    landmarks = [(0.5, 0.5)] * 21
+    for tip, pip in zip((8, 12, 16, 20), (6, 10, 14, 18)):
+        landmarks[pip] = (0.5, 0.4)
+        landmarks[tip] = (0.5, tip_y)
+    return landmarks
+
+
+def test_fist_classifier_requires_all_four_fingers_folded():
+    classifier = GestureClassifier()
+    assert classifier.classify_fist(make_landmarks(0.7))
+    assert not classifier.classify_fist(make_landmarks(0.3))
+
+
+def test_swipe_detector_maps_horizontal_motion_to_volume_direction():
+    detector = SwipeDetector(threshold=0.1)
+    assert detector.detect([(0.2, 0.5)]) is None
+    assert detector.detect([(0.4, 0.5)]) == Gesture.SWIPE_RIGHT
+    assert detector.detect([(0.2, 0.5)]) == Gesture.SWIPE_LEFT
+
+
+def test_gestures_control_volume_and_toggle_playback():
+    controller, media, _ = make_controller()
+    open_hand = make_landmarks(0.3)
+    open_hand[0] = (0.2, 0.5)
+    fist = make_landmarks(0.7)
+    assert not controller.handle_gesture(open_hand)
+    assert controller.handle_gesture([(0.2, 0.5)] + open_hand[1:]) is False
+    assert controller.handle_gesture([(0.4, 0.5)] + open_hand[1:])
+    assert media.volume == 60
+    assert controller.handle_gesture(fist)
+    assert media.playing
+    assert not controller.handle_gesture(fist)
+    assert controller.handle_gesture(open_hand) is False
+    assert controller.handle_gesture(fist)
+    assert not media.playing

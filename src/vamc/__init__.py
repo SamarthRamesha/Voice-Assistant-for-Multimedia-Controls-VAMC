@@ -3,14 +3,21 @@
 from .commands import CommandIntent, IntentMapper
 from .controller import VAMCController
 from .feedback import FeedbackState, MemoryFeedback
-from .media import LinuxMediaController, MockMediaController
+from .gestures import CameraGestureRunner, Gesture, GestureClassifier, MediaPipeHandLandmarker, SwipeDetector
+from .media import LinuxMediaController, MockMediaController, WindowsMediaController
 
 __all__ = [
     "CommandIntent",
+    "CameraGestureRunner",
     "FeedbackState",
     "IntentMapper",
+    "Gesture",
+    "GestureClassifier",
     "LinuxMediaController",
+    "MediaPipeHandLandmarker",
     "MemoryFeedback",
     "MockMediaController",
+    "WindowsMediaController",
+    "SwipeDetector",
     "VAMCController",
 ]
