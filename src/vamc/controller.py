@@ -47,6 +47,7 @@ class VAMCController:
             return False
         is_fist = self.gesture_classifier.classify_fist(landmarks)
         if is_fist:
+            self.swipe_detector.detect([])
             if self._fist_active:
                 return False
             self._fist_active = True
