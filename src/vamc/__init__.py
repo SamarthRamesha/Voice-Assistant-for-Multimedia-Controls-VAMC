@@ -2,14 +2,18 @@
 
 from .commands import CommandIntent, IntentMapper
 from .controller import VAMCController
-from .feedback import FeedbackState, MemoryFeedback
+from .dashboard import ConfigStore, DashboardConfig, serve
+from .feedback import FeedbackState, GpioStatusIndicator, MemoryFeedback, SystemFeedback
 from .gestures import CameraGestureRunner, Gesture, GestureClassifier, MediaPipeHandLandmarker, SwipeDetector
 from .media import LinuxMediaController, MockMediaController, WindowsMediaController
 
 __all__ = [
     "CommandIntent",
+    "ConfigStore",
     "CameraGestureRunner",
+    "DashboardConfig",
     "FeedbackState",
+    "GpioStatusIndicator",
     "IntentMapper",
     "Gesture",
     "GestureClassifier",
@@ -19,5 +23,7 @@ __all__ = [
     "MockMediaController",
     "WindowsMediaController",
     "SwipeDetector",
+    "SystemFeedback",
     "VAMCController",
+    "serve",
 ]

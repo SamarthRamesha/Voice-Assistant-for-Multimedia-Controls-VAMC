@@ -19,6 +19,9 @@ class VAMCController:
     swipe_detector: SwipeDetector = field(default_factory=SwipeDetector)
     _fist_active: bool = field(default=False, init=False)
 
+    def set_listening(self) -> None:
+        self.feedback.state(FeedbackState.LISTENING)
+
     def handle_text(self, text: str) -> bool:
         started = monotonic()
         self.feedback.state(FeedbackState.PROCESSING)
