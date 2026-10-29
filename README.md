@@ -38,37 +38,9 @@ The following work has been completed:
 
 ### What is not implemented yet
 
-The repository now contains a portable Python core, mock media and hardware-facing adapters, and automated tests. Real microphone, GPIO, LED and media-player validation still requires the target hardware and operating-system integrations.
+The repository currently contains a basic README and the initial GitHub Actions workflow. The actual application code, application-specific automated tests, and working multimedia controls still need to be implemented.
 
-The GitHub Actions workflow checks the README, installs Python dependencies and runs the automated test suite. Hardware-dependent acceptance tests must still be run separately on the target device.
-
-### Running the implementation
-
-Create an isolated environment and run the automated tests:
-
-```bash
-python3 -m venv .venv
-.venv/bin/python -m pip install -r requirements.txt
-PYTHONPATH=src .venv/bin/python -m pytest -q
-```
-
-Run the safe mock demo:
-
-```bash
-PYTHONPATH=src .venv/bin/python -m vamc
-```
-
-On Linux, `--real` uses `amixer` for volume/mute operations and `playerctl` for
-playback. Install those system tools and configure the target mixer/player before
-using it:
-
-```bash
-PYTHONPATH=src .venv/bin/python -m vamc --real
-```
-
-The real mode does not claim hardware acceptance by itself. Hardware validation and
-the NF-001/NF-002/NF-003 performance, accuracy and reliability measurements remain
-separate acceptance activities.
+The current GitHub Actions workflow checks that `README.md` exists and is non-empty. **It does not yet build or test the VAMC application.** Project-specific checks must be added when the implementation stack and application structure are established.
 
 ## 3. Project Requirements
 
@@ -84,10 +56,29 @@ The SRS and its acceptance criteria are the authoritative specification. GitHub 
 
 ## 4. Sprint 1 Scope
 
-The team has agreed that GitHub issues **#1 through #15** are Sprint 1 and
-issues **#16 through #30** are Sprint 2. Sprint 1 therefore covers the initial
-voice, volume, playback and gesture requirements through F-015. Feedback,
-dashboard, logging and security work beginning with F-016 is Sprint 2.
+Sprint 1 must be completed according to the issues marked for Sprint 1 in the GitHub Projects board. The proposed Sprint 1 scope is:
+
+| Issue | Feature |
+|---|---|
+| F-001 | Wake-word activated listening |
+| F-002 | Speech-to-text conversion (ASR) |
+| F-003 | Mapping recognised text to a command intent |
+| F-004 | Push-to-talk activation through a GPIO button |
+| F-006 | Volume up |
+| F-007 | Volume down |
+| F-008 | Mute and unmute, restoring the previous volume |
+| F-009 | Play media |
+| F-010 | Pause media |
+| F-016 | Audio or text-to-speech confirmation |
+| F-017 | Status LED feedback |
+| NF-001 | End-to-end command latency of no more than 2 seconds at the 90th percentile |
+| NF-002 | At least 90% voice-recognition accuracy in a quiet room |
+| NF-003 | Eight hours of continuous operation without a crash |
+| SR-001 | Authentication before dashboard configuration changes |
+
+**Before implementation begins:** verify that these 15 issues are actually assigned to Sprint 1 in GitHub Projects. If the team or instructor has approved a different Sprint 1 allocation, follow that approved allocation rather than silently changing the sprint scope.
+
+Sprint 2 contains the remaining requirements, including custom voice commands, track navigation, gesture recognition, dashboard features and the remaining security and non-functional requirements, according to the final sprint plan.
 
 ## 5. Suggested Technical Direction
 
@@ -158,7 +149,18 @@ The intent-mapping module must invoke the appropriate action through a defined m
 
 Use the appropriate native media-control API or a suitable player integration for the target operating system. If a real player integration is not available during development, use a mock controller for unit tests and clearly identify which tests still require integration with a real player.
 
-### Phase D: Verify the Sprint 1 non-functional requirements
+### Phase D: Implement feedback
+
+Implement the feedback requirements assigned to Sprint 1.
+
+- **F-016:** provide audio or text-to-speech confirmation.
+- **F-017:** provide status LED feedback.
+
+Feedback should communicate whether a command was accepted, completed or failed, as specified by the SRS. Avoid reporting success before the corresponding action has actually succeeded.
+
+If the team does not have the required speaker, audio output or LED hardware, make the feedback interface testable with a mock and document the hardware-dependent validation that remains outstanding.
+
+### Phase E: Verify non-functional and security requirements
 
 **NF-001: Command latency**
 
@@ -172,15 +174,11 @@ Prepare a labelled set of test utterances for the supported commands. Record the
 
 Plan an eight-hour continuous-operation soak test. Record crashes, unhandled exceptions, restarts and relevant resource or log information. A short unit test or successful application launch does not prove this requirement has passed.
 
-Feedback and dashboard authentication are Sprint 2 work under the team’s
-issue-number split and must not be claimed as Sprint 1 acceptance.
+**SR-001: Authentication**
 
-The current Sprint 1 implementation covers issues #1 through #7 needed by this
-PR: wake-word activation, speech-to-text adapter support, intent mapping,
-push-to-talk abstraction, custom command registration, and volume up/down. The
-mute/unmute requirement is tracked separately as issue #8. The Vosk adapter
-requires a downloaded model directory; the
-GPIO adapter requires Raspberry Pi hardware.
+The SRS requires dashboard authentication before configuration changes are accepted. Implement and test this protection if the Sprint 1 implementation includes the relevant dashboard/configuration interface. If that interface is not yet present, document the dependency and remaining work rather than claiming the requirement is complete.
+
+Security requirements must be enforced in the application or service that performs the protected operation. Hiding a button in the user interface is not sufficient authentication.
 
 ## 7. Testing Requirements
 
