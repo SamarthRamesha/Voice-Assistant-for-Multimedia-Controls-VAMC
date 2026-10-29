@@ -43,5 +43,7 @@ class VAMCController:
             CommandIntent.UNMUTE: self.media.unmute,
             CommandIntent.PLAY: self.media.play,
             CommandIntent.PAUSE: self.media.pause,
+            CommandIntent.NEXT: self.media.next,
+            CommandIntent.PREVIOUS: self.media.previous,
         }
         actions[intent]()

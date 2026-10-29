@@ -175,6 +175,13 @@ Plan an eight-hour continuous-operation soak test. Record crashes, unhandled exc
 Feedback and dashboard authentication are Sprint 2 work under the team’s
 issue-number split and must not be claimed as Sprint 1 acceptance.
 
+The current Sprint 1 implementation covers issues #1 through #7 needed by this
+PR: wake-word activation, speech-to-text adapter support, intent mapping,
+push-to-talk abstraction, custom command registration, and volume up/down. The
+mute/unmute requirement is tracked separately as issue #8. The Vosk adapter
+requires a downloaded model directory; the
+GPIO adapter requires Raspberry Pi hardware.
+
 ## 7. Testing Requirements
 
 Every implemented feature must have tests tied to its requirement ID.

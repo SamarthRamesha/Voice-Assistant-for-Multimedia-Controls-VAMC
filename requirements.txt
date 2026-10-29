@@ -1,1 +1,3 @@
 pytest>=8.0,<9
+vosk>=0.3.45
+gpiozero>=2.0

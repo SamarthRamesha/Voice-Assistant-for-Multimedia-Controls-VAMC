@@ -16,6 +16,8 @@ class MediaController(Protocol):
     def unmute(self) -> None: ...
     def play(self) -> None: ...
     def pause(self) -> None: ...
+    def next(self) -> None: ...
+    def previous(self) -> None: ...
 
 
 @dataclass
@@ -53,6 +55,12 @@ class MockMediaController:
 
     def pause(self) -> None:
         self.playing = False
+
+    def next(self) -> None:
+        self.playing = True
+
+    def previous(self) -> None:
+        self.playing = True
 
     @staticmethod
     def _clamp(value: int) -> int:
@@ -107,6 +115,12 @@ class LinuxMediaController:
 
     def pause(self) -> None:
         self._run("playerctl", "pause")
+
+    def next(self) -> None:
+        self._run("playerctl", "next")
+
+    def previous(self) -> None:
+        self._run("playerctl", "previous")
 
     @staticmethod
     def _run(*command: str) -> subprocess.CompletedProcess[str]:

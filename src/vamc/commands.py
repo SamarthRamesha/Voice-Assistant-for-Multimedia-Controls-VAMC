@@ -12,6 +12,8 @@ class CommandIntent(str, Enum):
     UNMUTE = "unmute"
     PLAY = "play"
     PAUSE = "pause"
+    NEXT = "next"
+    PREVIOUS = "previous"
 
 
 @dataclass(frozen=True)
@@ -30,6 +32,8 @@ class IntentMapper:
         CommandIntent.UNMUTE: ("unmute", "sound on"),
         CommandIntent.PLAY: ("play", "resume"),
         CommandIntent.PAUSE: ("pause", "stop playback"),
+        CommandIntent.NEXT: ("next", "next track"),
+        CommandIntent.PREVIOUS: ("previous", "previous track"),
     }
 
     def __init__(self, custom_phrases: dict[str, CommandIntent] | None = None) -> None:

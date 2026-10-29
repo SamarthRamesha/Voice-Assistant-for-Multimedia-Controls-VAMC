@@ -4,7 +4,7 @@ from vamc.commands import CommandIntent, IntentMapper
 from vamc.controller import VAMCController
 from vamc.feedback import FeedbackState, MemoryFeedback
 from vamc.media import LinuxMediaController, MockMediaController
-from vamc.voice import WakeWordDetector
+from vamc.voice import PushToTalk, TextRecognizer, VoiceActivation, WakeWordDetector
 
 
 def make_controller():
@@ -20,6 +20,8 @@ def make_controller():
     ("unmute", CommandIntent.UNMUTE),
     ("play", CommandIntent.PLAY),
     ("pause", CommandIntent.PAUSE),
+    ("next track", CommandIntent.NEXT),
+    ("previous track", CommandIntent.PREVIOUS),
 ])
 def test_supported_intents(text, intent):
     assert IntentMapper().map(text).intent == intent
@@ -68,13 +70,32 @@ def test_wake_word():
     assert not detector.detected("compute volume up")
 
 
+def test_push_to_talk_activates_without_wake_word():
+    button = PushToTalk()
+    activation = VoiceActivation(WakeWordDetector("computer"), button)
+    button.press()
+    assert activation.activated_by_button()
+    assert not activation.activated_by_button()
+
+
+def test_text_recognizer_transcribes_captured_audio():
+    assert TextRecognizer().transcribe(b"volume up") == "volume up"
+
+
+def test_custom_phrase_triggers_mapped_action():
+    controller, media, _ = make_controller()
+    controller.mapper.register("make it louder", CommandIntent.VOLUME_UP)
+    assert controller.handle_text("make it louder")
+    assert media.volume == 60
+
+
 def test_linux_media_controller_uses_safe_commands(monkeypatch):
     calls = []
 
     class Result:
         stdout = "Front Left: Playback 50 [50%] [on]\n"
 
-    def fake_run(command, **kwargs):
+    def fake_run(command, **_kwargs):
         calls.append(command)
         return Result()
 
