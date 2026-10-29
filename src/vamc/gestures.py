@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Sequence
+from typing import Any, Callable, Protocol, Sequence
 
 
 class Gesture(str, Enum):
@@ -69,3 +69,43 @@ class MediaPipeHandLandmarker:
         if not result.multi_hand_landmarks:
             return []
         return list(result.multi_hand_landmarks[0].landmark)
+
+
+class FrameCapture(Protocol):
+    def read(self) -> tuple[bool, Any]: ...
+    def release(self) -> None: ...
+
+
+class CameraGestureRunner:
+    """Reads camera frames and forwards detected hand landmarks to a handler."""
+
+    def __init__(
+        self,
+        on_landmarks: Callable[[list[Any]], bool],
+        camera_index: int = 0,
+        landmarker: MediaPipeHandLandmarker | None = None,
+        capture: FrameCapture | None = None,
+        cv2_module: Any | None = None,
+    ) -> None:
+        try:
+            cv2 = cv2_module or __import__("cv2")
+        except ImportError as exc:
+            raise RuntimeError("Install opencv-python to use camera gesture controls") from exc
+        self._cv2 = cv2
+        self._capture = capture or cv2.VideoCapture(camera_index)
+        self._landmarker = landmarker or MediaPipeHandLandmarker()
+        self._on_landmarks = on_landmarks
+
+    def run(self, max_frames: int | None = None) -> int:
+        processed = 0
+        try:
+            while max_frames is None or processed < max_frames:
+                success, frame = self._capture.read()
+                if not success:
+                    break
+                rgb_frame = self._cv2.cvtColor(frame, self._cv2.COLOR_BGR2RGB)
+                self._on_landmarks(self._landmarker.detect(rgb_frame))
+                processed += 1
+        finally:
+            self._capture.release()
+        return processed
