@@ -5,6 +5,7 @@ from time import monotonic
 
 from .commands import CommandIntent, IntentMapper
 from .feedback import Feedback, FeedbackState
+from .gestures import Gesture, GestureClassifier, SwipeDetector
 from .media import MediaController
 
 
@@ -14,6 +15,9 @@ class VAMCController:
     feedback: Feedback
     mapper: IntentMapper = field(default_factory=IntentMapper)
     history: list[dict[str, object]] = field(default_factory=list)
+    gesture_classifier: GestureClassifier = field(default_factory=GestureClassifier)
+    swipe_detector: SwipeDetector = field(default_factory=SwipeDetector)
+    _fist_active: bool = field(default=False, init=False)
 
     def handle_text(self, text: str) -> bool:
         started = monotonic()
@@ -34,6 +38,29 @@ class VAMCController:
         self.feedback.state(FeedbackState.SUCCESS)
         self.feedback.confirm(f"Executed {command.intent.value.replace('_', ' ')}")
         return True
+
+    def handle_gesture(self, landmarks: list[object]) -> bool:
+        """Apply a fist toggle or a horizontal swipe to the media controller."""
+        if not landmarks:
+            self.swipe_detector.detect(landmarks)
+            self._fist_active = False
+            return False
+        is_fist = self.gesture_classifier.classify_fist(landmarks)
+        if is_fist:
+            if self._fist_active:
+                return False
+            self._fist_active = True
+            self.media.pause() if getattr(self.media, "playing", False) else self.media.play()
+            return True
+        self._fist_active = False
+        gesture = self.swipe_detector.detect(landmarks)
+        if gesture == Gesture.SWIPE_RIGHT:
+            self.media.volume_up()
+            return True
+        if gesture == Gesture.SWIPE_LEFT:
+            self.media.volume_down()
+            return True
+        return False
 
     def _execute(self, intent: CommandIntent) -> None:
         actions = {

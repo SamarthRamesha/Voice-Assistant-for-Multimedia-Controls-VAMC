@@ -3,6 +3,7 @@ import pytest
 from vamc.commands import CommandIntent, IntentMapper
 from vamc.controller import VAMCController
 from vamc.feedback import FeedbackState, MemoryFeedback
+from vamc.gestures import Gesture, GestureClassifier, SwipeDetector
 from vamc.media import LinuxMediaController, MockMediaController
 from vamc.voice import PushToTalk, TextRecognizer, VoiceActivation, WakeWordDetector
 
@@ -112,3 +113,41 @@ def test_linux_media_controller_uses_safe_commands(monkeypatch):
         ("amixer", "set", "Master", "mute"),
         ("playerctl", "play"),
     ]
+
+
+def make_landmarks(tip_y: float) -> list[tuple[float, float]]:
+    landmarks = [(0.5, 0.5)] * 21
+    for tip, pip in zip((8, 12, 16, 20), (6, 10, 14, 18)):
+        landmarks[pip] = (0.5, 0.4)
+        landmarks[tip] = (0.5, tip_y)
+    return landmarks
+
+
+def test_fist_classifier_requires_all_four_fingers_folded():
+    classifier = GestureClassifier()
+    assert classifier.classify_fist(make_landmarks(0.7))
+    assert not classifier.classify_fist(make_landmarks(0.3))
+
+
+def test_swipe_detector_maps_horizontal_motion_to_volume_direction():
+    detector = SwipeDetector(threshold=0.1)
+    assert detector.detect([(0.2, 0.5)]) is None
+    assert detector.detect([(0.4, 0.5)]) == Gesture.SWIPE_RIGHT
+    assert detector.detect([(0.2, 0.5)]) == Gesture.SWIPE_LEFT
+
+
+def test_gestures_control_volume_and_toggle_playback():
+    controller, media, _ = make_controller()
+    open_hand = make_landmarks(0.3)
+    open_hand[0] = (0.2, 0.5)
+    fist = make_landmarks(0.7)
+    assert not controller.handle_gesture(open_hand)
+    assert controller.handle_gesture([(0.2, 0.5)] + open_hand[1:]) is False
+    assert controller.handle_gesture([(0.4, 0.5)] + open_hand[1:])
+    assert media.volume == 60
+    assert controller.handle_gesture(fist)
+    assert media.playing
+    assert not controller.handle_gesture(fist)
+    assert controller.handle_gesture(open_hand) is False
+    assert controller.handle_gesture(fist)
+    assert not media.playing
