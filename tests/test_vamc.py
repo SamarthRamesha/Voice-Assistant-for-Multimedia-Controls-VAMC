@@ -3,6 +3,9 @@ from http.client import HTTPConnection
 import json
 from threading import Thread
 
+import sys
+from types import SimpleNamespace
+
 import pytest
 
 from vamc.commands import CommandIntent, IntentMapper
@@ -11,7 +14,7 @@ from vamc.dashboard import ConfigStore, serve
 from vamc.feedback import FeedbackState, MemoryFeedback, SystemFeedback
 from vamc.gestures import CameraGestureRunner, Gesture, GestureClassifier, SwipeDetector
 from vamc.media import LinuxMediaController, MockMediaController, WindowsMediaController
-from vamc.voice import PushToTalk, TextRecognizer, VoiceActivation, WakeWordDetector
+from vamc.voice import PushToTalk, TextRecognizer, VoiceActivation, VoskRecognizer, WakeWordDetector
 
 
 def make_controller():
@@ -21,6 +24,9 @@ def make_controller():
 
 
 @pytest.mark.parametrize("text,intent", [
+    ("sound on", CommandIntent.UNMUTE),
+    ("turn sound on", CommandIntent.UNMUTE),
+    ("enable sound", CommandIntent.UNMUTE),
     ("volume up", CommandIntent.VOLUME_UP),
     ("volume down", CommandIntent.VOLUME_DOWN),
     ("mute", CommandIntent.MUTE),
@@ -363,3 +369,55 @@ def test_dashboard_serves_status_history_and_config(tmp_path):
         connection.close()
         server.shutdown()
         server.server_close()
+
+def test_vosk_recognizer_uses_optional_grammar(monkeypatch):
+    calls = []
+
+    class FakeRecognizer:
+        def __init__(self, *args):
+            calls.append(args)
+
+        def AcceptWaveform(self, audio):
+            return True
+
+        def FinalResult(self):
+            return '{"text": "sound on"}'
+
+    fake_vosk = SimpleNamespace(
+        Model=lambda path: "fake-model",
+        KaldiRecognizer=FakeRecognizer,
+    )
+    monkeypatch.setitem(sys.modules, "vosk", fake_vosk)
+
+    grammar = ["sound on", "turn sound on", "enable sound"]
+    recognizer = VoskRecognizer("fake-model-path", grammar=grammar)
+
+    assert recognizer.transcribe(b"fake audio") == "sound on"
+    assert calls[0][0] == "fake-model"
+    assert calls[0][1] == 16_000
+    assert json.loads(calls[0][2]) == grammar + ["[unk]"]
+
+
+def test_vosk_recognizer_supports_unrestricted_mode(monkeypatch):
+    calls = []
+
+    class FakeRecognizer:
+        def __init__(self, *args):
+            calls.append(args)
+
+        def AcceptWaveform(self, audio):
+            return True
+
+        def FinalResult(self):
+            return '{"text": "pause"}'
+
+    fake_vosk = SimpleNamespace(
+        Model=lambda path: "fake-model",
+        KaldiRecognizer=FakeRecognizer,
+    )
+    monkeypatch.setitem(sys.modules, "vosk", fake_vosk)
+
+    recognizer = VoskRecognizer("fake-model-path")
+
+    assert recognizer.transcribe(b"fake audio") == "pause"
+    assert calls[0] == ("fake-model", 16_000)

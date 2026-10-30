@@ -1,18 +1,47 @@
+
 import argparse
 import platform
 from threading import Thread
 
 from .controller import VAMCController
 from .dashboard import serve
-from .feedback import FeedbackState, GpioStatusIndicator, MemoryFeedback, SystemFeedback
+from .feedback import (
+    FeedbackState,
+    GpioStatusIndicator,
+    MemoryFeedback,
+    SystemFeedback,
+)
 from .gestures import CameraGestureRunner
 from .media import LinuxMediaController, MockMediaController, WindowsMediaController
+from .voice import MicrophoneRecorder, VoskRecognizer
+
+
+COMMAND_GRAMMAR = [
+    "volume up",
+    "increase volume",
+    "volume down",
+    "decrease volume",
+    "mute",
+    "sound on",
+    "turn sound on",
+    "enable sound",
+    "play",
+    "resume",
+    "pause",
+    "stop",
+    "next",
+    "skip",
+    "previous",
+    "go back",
+]
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Run the VAMC command loop")
     parser.add_argument("--real", action="store_true", help="use the native media adapter")
     parser.add_argument("--gestures", action="store_true", help="control media with the camera")
+    parser.add_argument("--voice", action="store_true", help="control media using microphone input")
+    parser.add_argument("--model", default="models/vosk-model-small-en-us-0.15", help="Vosk model directory")
     parser.add_argument("--camera", type=int, default=0, help="camera index for gesture mode")
     parser.add_argument("--feedback", action="store_true", help="enable audible system feedback")
     parser.add_argument("--led-listening-pin", type=int, help="GPIO pin for listening state")
@@ -23,6 +52,9 @@ def main() -> None:
     parser.add_argument("--port", type=int, default=8080, help="dashboard port")
     args = parser.parse_args()
 
+    if args.voice and args.gestures:
+        parser.error("--voice and --gestures cannot be used together")
+
     if args.real:
         if platform.system() == "Windows":
             media = WindowsMediaController()
@@ -30,42 +62,96 @@ def main() -> None:
             media = LinuxMediaController()
         else:
             parser.error("--real is supported on Windows and Linux")
+
         indicator = None
         led_pins = {
-            state: pin for state, pin in (
+            state: pin
+            for state, pin in (
                 (FeedbackState.LISTENING, args.led_listening_pin),
                 (FeedbackState.PROCESSING, args.led_processing_pin),
                 (FeedbackState.ERROR, args.led_error_pin),
-            ) if pin is not None
+            )
+            if pin is not None
         }
         if led_pins:
-            indicator = GpioStatusIndicator({
-                state: pin for state, pin in led_pins.items()
-            })
-        feedback = SystemFeedback(indicator=indicator) if args.feedback else MemoryFeedback()
+            indicator = GpioStatusIndicator(led_pins)
+
+        feedback = (
+            SystemFeedback(indicator=indicator)
+            if args.feedback
+            else MemoryFeedback()
+        )
     else:
         media = MockMediaController()
         feedback = SystemFeedback() if args.feedback else MemoryFeedback()
+
     controller = VAMCController(media, feedback)
+
     dashboard = None
     if args.dashboard:
         dashboard = serve(controller, args.config, port=args.port)
         Thread(target=dashboard.serve_forever, daemon=True).start()
         print(f"VAMC dashboard running at http://127.0.0.1:{args.port}")
-    if args.gestures:
-        print("VAMC gesture mode active. Press Ctrl-C to exit.")
-        CameraGestureRunner(controller.handle_gesture, camera_index=args.camera).run()
-        return
-    print("VAMC ready. Type a command (Ctrl-D to exit).")
+
     try:
+        if args.gestures:
+            print("VAMC gesture mode active. Press Ctrl-C to exit.")
+            CameraGestureRunner(
+                controller.handle_gesture,
+                camera_index=args.camera,
+            ).run()
+            return
+
+        if args.voice:
+            print("VAMC voice mode active.")
+            print("Press Enter, speak one command, then wait for the result.")
+            print("Press Ctrl-C to exit.")
+
+            recognizer = VoskRecognizer(
+                args.model,
+                sample_rate=16_000,
+                grammar=COMMAND_GRAMMAR,
+            )
+            recorder = MicrophoneRecorder(sample_rate=16_000)
+
+            while True:
+                input("\nPress Enter to speak...")
+                controller.set_listening()
+
+                try:
+                    audio = recorder.record()
+                    transcript = recognizer.transcribe(audio)
+                    print(f"Recognised: {transcript}")
+                    controller.handle_text(transcript)
+                    print(
+                        f"volume={media.volume}% "
+                        f"muted={media.muted} "
+                        f"playing={media.playing}"
+                    )
+                except (ValueError, RuntimeError) as exc:
+                    print(f"Voice input error: {exc}")
+                    feedback.state(FeedbackState.ERROR)
+                    feedback.error(str(exc))
+
+            return
+
+        print("VAMC ready. Type a command (Ctrl-D to exit).")
         while True:
             text = input("> ")
             controller.handle_text(text)
-            print(f"volume={media.volume}% muted={media.muted} playing={media.playing}")
-    except EOFError:
+            print(
+                f"volume={media.volume}% "
+                f"muted={media.muted} "
+                f"playing={media.playing}"
+            )
+
+    except (EOFError, KeyboardInterrupt):
+        print("\nVAMC shutting down.")
+    finally:
         if dashboard is not None:
             dashboard.shutdown()
 
 
 if __name__ == "__main__":
     main()
+

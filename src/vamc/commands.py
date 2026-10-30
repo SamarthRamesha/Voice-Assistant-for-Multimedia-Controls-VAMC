@@ -29,7 +29,7 @@ class IntentMapper:
         CommandIntent.VOLUME_UP: ("volume up", "increase volume", "turn it up"),
         CommandIntent.VOLUME_DOWN: ("volume down", "decrease volume", "turn it down"),
         CommandIntent.MUTE: ("mute", "silence"),
-        CommandIntent.UNMUTE: ("unmute", "sound on"),
+        CommandIntent.UNMUTE: ("unmute", "sound on", "turn sound on", "enable sound"),
         CommandIntent.PLAY: ("play", "resume"),
         CommandIntent.PAUSE: ("pause", "stop playback"),
         CommandIntent.NEXT: ("next", "next track"),
