@@ -6,6 +6,7 @@ from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import os
 from pathlib import Path
+import secrets
 from tempfile import NamedTemporaryFile
 from typing import Any
 from urllib.parse import parse_qs, urlparse
@@ -50,20 +51,23 @@ class ConfigStore:
 
 def _dashboard_html() -> bytes:
     return b"""<!doctype html>
-<html><head><meta charset="utf-8"><title>VAMC status</title></head>
-<body><h1>VAMC status</h1><pre id="status">Loading...</pre>
-<script>
-async function refresh() {
-  const response = await fetch('/api/status');
-  document.getElementById('status').textContent =
-    JSON.stringify(await response.json(), null, 2);
-}
-refresh();
-setInterval(refresh, 1000);
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VAMC dashboard</title><style>
+:root{font:16px system-ui,sans-serif;color:#17212b;background:#eef2f5}body{margin:0}
+main{max-width:1100px;margin:auto;padding:clamp(16px,4vw,40px)}header{display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap}
+h1{margin:0;font-size:clamp(1.5rem,4vw,2.4rem)}.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin:24px 0}.card{background:white;border:1px solid #d5dde5;border-radius:8px;padding:18px;min-width:0}.value{font-size:1.6rem;font-weight:700;overflow-wrap:anywhere}
+section{background:white;border:1px solid #d5dde5;border-radius:8px;padding:18px;margin-top:16px;overflow:auto}table{width:100%;border-collapse:collapse;min-width:560px}th,td{text-align:left;padding:10px;border-bottom:1px solid #e5e9ed}th{font-size:.8rem;text-transform:uppercase;color:#5a6875}a{color:#075985}
+@media(max-width:640px){.grid{grid-template-columns:1fr 1fr}.grid .card:last-child{grid-column:1/-1}section{padding:12px}table{min-width:0}thead{display:none}tr{display:block;padding:10px 0}td{display:block;border:0;padding:3px 0}td:before{content:attr(data-label);font-weight:700;margin-right:8px;color:#5a6875}}
+</style></head><body><main><header><h1>VAMC dashboard</h1><span id="updated">Loading...</span></header>
+<div class="grid"><div class="card"><div>Volume</div><div class="value" id="volume">-</div></div><div class="card"><div>Muted</div><div class="value" id="muted">-</div></div><div class="card"><div>Connection</div><div class="value" id="connection">-</div></div></div>
+<section><h2>System logs</h2><p><a href="/api/logs/export?format=json">Export JSON</a> &middot; <a href="/api/logs/export?format=csv">Export CSV</a></p><table><thead><tr><th>Time</th><th>Source</th><th>Action</th><th>Status</th><th>Details</th></tr></thead><tbody id="logs"></tbody></table></section>
+</main><script>
+async function refresh(){const data=await (await fetch('/api/status')).json();document.getElementById('volume').textContent=data.volume+'%';document.getElementById('muted').textContent=data.muted?'Yes':'No';document.getElementById('connection').textContent=data.connection_status;document.getElementById('updated').textContent='Updated '+new Date().toLocaleTimeString();document.getElementById('logs').innerHTML=data.logs.map(log=>'<tr><td data-label="Time">'+log.timestamp+'</td><td data-label="Source">'+log.source+'</td><td data-label="Action">'+log.action+'</td><td data-label="Status">'+log.status+'</td><td data-label="Details">'+log.details+'</td></tr>').join('')}
+refresh();setInterval(refresh,1000);
 </script></body></html>"""
 
 
-def make_handler(controller: VAMCController, store: ConfigStore) -> type[BaseHTTPRequestHandler]:
+def make_handler(controller: VAMCController, store: ConfigStore, dashboard_token: str) -> type[BaseHTTPRequestHandler]:
     class Handler(BaseHTTPRequestHandler):
         def _json(self, status: HTTPStatus, payload: object) -> None:
             body = json.dumps(payload).encode()
@@ -82,6 +86,13 @@ def make_handler(controller: VAMCController, store: ConfigStore) -> type[BaseHTT
             if not isinstance(payload, dict):
                 raise ValueError("Request body must be a JSON object")
             return payload
+
+        def _authenticated(self) -> bool:
+            expected = f"Bearer {dashboard_token}"
+            if secrets.compare_digest(self.headers.get("Authorization", ""), expected):
+                return True
+            self._json(HTTPStatus.UNAUTHORIZED, {"error": "Bearer token required"})
+            return False
 
         def do_GET(self) -> None:
             if self.path == "/":
@@ -122,6 +133,8 @@ def make_handler(controller: VAMCController, store: ConfigStore) -> type[BaseHTT
                 self.wfile.write(body)
                 return
             if self.path == "/api/config":
+                if not self._authenticated():
+                    return
                 config = store.load()
                 self._json(HTTPStatus.OK, {
                     "wifi_ssid": config.wifi_ssid,
@@ -133,6 +146,8 @@ def make_handler(controller: VAMCController, store: ConfigStore) -> type[BaseHTT
         def do_POST(self) -> None:
             if self.path != "/api/config":
                 self._json(HTTPStatus.NOT_FOUND, {"error": "Not found"})
+                return
+            if not self._authenticated():
                 return
             try:
                 payload = self._read_json()
@@ -161,7 +176,11 @@ def serve(
     config_path: str | os.PathLike[str],
     host: str = "127.0.0.1",
     port: int = 8080,
+    dashboard_token: str | None = None,
 ) -> ThreadingHTTPServer:
     store = ConfigStore(config_path)
     store.load()
-    return ThreadingHTTPServer((host, port), make_handler(controller, store))
+    token = dashboard_token or os.environ.get("VAMC_DASHBOARD_TOKEN")
+    if not token:
+        raise ValueError("dashboard_token or VAMC_DASHBOARD_TOKEN is required")
+    return ThreadingHTTPServer((host, port), make_handler(controller, store, token))

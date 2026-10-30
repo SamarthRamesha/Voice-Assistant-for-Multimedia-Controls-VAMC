@@ -4,7 +4,7 @@ import csv
 from datetime import datetime, timezone
 import json
 from pathlib import Path
-from threading import Lock
+from threading import RLock
 from typing import Any
 
 
@@ -13,10 +13,14 @@ class SystemLog:
 
     _FIELDS = ("timestamp", "source", "action", "status", "details")
 
-    def __init__(self, path: str | Path | None = None) -> None:
+    def __init__(self, path: str | Path | None = None, retention_days: int = 30) -> None:
+        if retention_days < 1:
+            raise ValueError("retention_days must be positive")
         self.path = Path(path) if path is not None else None
+        self.retention_days = retention_days
         self._entries: list[dict[str, Any]] = self._load()
-        self._lock = Lock()
+        self._lock = RLock()
+        self._purge()
 
     def _load(self) -> list[dict[str, Any]]:
         if self.path is None or not self.path.exists():
@@ -30,6 +34,25 @@ class SystemLog:
             if isinstance(entry, dict) and all(field in entry for field in self._FIELDS):
                 entries.append({field: entry[field] for field in self._FIELDS})
         return entries
+
+    def _purge(self) -> None:
+        cutoff = datetime.now(timezone.utc).timestamp() - self.retention_days * 86400
+        with self._lock:
+            retained = []
+            for entry in self._entries:
+                try:
+                    timestamp = datetime.fromisoformat(entry["timestamp"]).timestamp()
+                except (TypeError, ValueError):
+                    continue
+                if timestamp >= cutoff:
+                    retained.append(entry)
+            self._entries = retained
+            if self.path is not None:
+                self.path.parent.mkdir(parents=True, exist_ok=True)
+                self.path.write_text(
+                    "".join(json.dumps(entry) + "\n" for entry in retained),
+                    encoding="utf-8",
+                )
 
     def record(
         self,
@@ -47,10 +70,7 @@ class SystemLog:
         }
         with self._lock:
             self._entries.append(entry)
-            if self.path is not None:
-                self.path.parent.mkdir(parents=True, exist_ok=True)
-                with self.path.open("a", encoding="utf-8") as stream:
-                    stream.write(json.dumps(entry) + "\n")
+            self._purge()
         return entry
 
     def view(self, limit: int = 100) -> list[dict[str, Any]]:

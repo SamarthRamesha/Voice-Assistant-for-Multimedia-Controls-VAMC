@@ -115,6 +115,21 @@ def test_system_log_records_commands_and_persists_exports(tmp_path):
     assert "timestamp,source,action,status,details" in csv_path.read_text()
 
 
+def test_system_log_retains_only_last_30_days(tmp_path):
+    log_path = tmp_path / "system.jsonl"
+    old_entry = {
+        "timestamp": "2020-01-01T00:00:00+00:00",
+        "source": "voice",
+        "action": "old",
+        "status": "success",
+        "details": "",
+    }
+    log_path.write_text(json.dumps(old_entry) + "\n")
+    log = SystemLog(log_path)
+    log.record("voice", "new", "success")
+    assert [entry["action"] for entry in log.view()] == ["new"]
+
+
 def test_linux_media_controller_uses_safe_commands(monkeypatch):
     calls = []
 
@@ -344,7 +359,7 @@ def test_config_store_persists_wifi_and_wake_word(tmp_path):
 def test_dashboard_serves_status_history_and_config(tmp_path):
     controller, media, _ = make_controller()
     controller.handle_text("volume up")
-    server = serve(controller, tmp_path / "config.json", port=0)
+    server = serve(controller, tmp_path / "config.json", port=0, dashboard_token="test-token")
     thread = Thread(target=server.serve_forever, daemon=True)
     thread.start()
     connection = HTTPConnection("127.0.0.1", server.server_port)
@@ -360,6 +375,9 @@ def test_dashboard_serves_status_history_and_config(tmp_path):
         assert status["connection_status"] == "connected"
         assert len(status["history"]) == 1
         assert len(status["logs"]) == 1
+
+        connection.request("GET", "/api/config")
+        assert connection.getresponse().status == 401
 
         connection.request("GET", "/api/logs")
         logs = json.loads(connection.getresponse().read())
@@ -380,12 +398,12 @@ def test_dashboard_serves_status_history_and_config(tmp_path):
             "POST",
             "/api/config",
             body=payload,
-            headers={"Content-Type": "application/json"},
+            headers={"Content-Type": "application/json", "Authorization": "Bearer test-token"},
         )
         assert connection.getresponse().status == 200
         assert ConfigStore(tmp_path / "config.json").load().wake_word == "assistant"
 
-        connection.request("GET", "/api/config")
+        connection.request("GET", "/api/config", headers={"Authorization": "Bearer test-token"})
         config_response = json.loads(connection.getresponse().read())
         assert config_response == {"wifi_ssid": "test-network", "wake_word": "assistant"}
         assert "secret" not in json.dumps(config_response)
