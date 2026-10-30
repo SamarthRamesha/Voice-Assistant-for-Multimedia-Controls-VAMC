@@ -6,6 +6,7 @@ from .dashboard import ConfigStore, DashboardConfig, serve
 from .feedback import FeedbackState, GpioStatusIndicator, MemoryFeedback, SystemFeedback
 from .gestures import CameraGestureRunner, Gesture, GestureClassifier, MediaPipeHandLandmarker, SwipeDetector
 from .media import LinuxMediaController, MockMediaController, WindowsMediaController
+from .logs import SystemLog
 
 __all__ = [
     "CommandIntent",
@@ -24,6 +25,7 @@ __all__ = [
     "WindowsMediaController",
     "SwipeDetector",
     "SystemFeedback",
+    "SystemLog",
     "VAMCController",
     "serve",
 ]

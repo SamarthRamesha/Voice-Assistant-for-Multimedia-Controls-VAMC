@@ -8,6 +8,7 @@ import os
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 from typing import Any
+from urllib.parse import parse_qs, urlparse
 
 from .controller import VAMCController
 
@@ -98,7 +99,27 @@ def make_handler(controller: VAMCController, store: ConfigStore) -> type[BaseHTT
                     "muted": media.muted,
                     "connection_status": "connected",
                     "history": controller.history[-10:],
+                    "logs": controller.system_log.view(10),
                 })
+                return
+            if self.path == "/api/logs":
+                self._json(HTTPStatus.OK, {"logs": controller.system_log.view(100)})
+                return
+            parsed = urlparse(self.path)
+            if parsed.path == "/api/logs/export":
+                format = parse_qs(parsed.query).get("format", ["json"])[0]
+                try:
+                    body = controller.system_log.render(format).encode()
+                except ValueError as exc:
+                    self._json(HTTPStatus.BAD_REQUEST, {"error": str(exc)})
+                    return
+                content_type = "text/csv" if format == "csv" else "application/json"
+                self.send_response(HTTPStatus.OK)
+                self.send_header("Content-Type", content_type)
+                self.send_header("Content-Disposition", f"attachment; filename=vamc-logs.{format}")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
                 return
             if self.path == "/api/config":
                 config = store.load()
