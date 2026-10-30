@@ -137,6 +137,31 @@ Run the automated checks with:
 PYTHONPATH=src pytest -q
 ```
 
+System events are written to `vamc.log.jsonl` by default. View or export them from
+the command line:
+
+```bash
+PYTHONPATH=src python -m vamc --view-logs
+PYTHONPATH=src python -m vamc --export-logs logs.json --export-format json
+PYTHONPATH=src python -m vamc --export-logs logs.csv --export-format csv
+```
+
+When the dashboard is enabled, recent records are available at `/api/logs` and
+downloadable from `/api/logs/export?format=json` or
+`/api/logs/export?format=csv`.
+
+Dashboard configuration access requires a bearer token. Set it through the
+environment or CLI:
+
+```bash
+export VAMC_DASHBOARD_TOKEN="replace-with-a-local-secret"
+PYTHONPATH=src python -m vamc --dashboard --dashboard-token "$VAMC_DASHBOARD_TOKEN"
+```
+
+Send `Authorization: Bearer <token>` when reading or updating `/api/config`.
+System logs are timestamped in UTC and records older than 30 days are removed
+automatically. The dashboard layout adapts to desktop and narrow mobile screens.
+
 ### Important implementation rule
 
 Choose the simplest architecture that meets the SRS and the hardware available to the team. Do not introduce a database, cloud service, complex framework, or paid API merely because an AI assistant recommends it.
