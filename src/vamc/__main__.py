@@ -1,5 +1,6 @@
 
 import argparse
+import json
 import platform
 from threading import Thread
 
@@ -12,9 +13,18 @@ from .feedback import (
     SystemFeedback,
 )
 from .gestures import CameraGestureRunner
+from .logs import SystemLog
 from .media import LinuxMediaController, MockMediaController, WindowsMediaController
 from .voice import MicrophoneRecorder, VoskRecognizer
 
+from vamc.logs import SystemLog
+from vamc.voice import (
+    PushToTalk,
+    TextRecognizer,
+    VoiceActivation,
+    VoskRecognizer,
+    WakeWordDetector,
+)
 
 COMMAND_GRAMMAR = [
     "volume up",
@@ -50,10 +60,25 @@ def main() -> None:
     parser.add_argument("--dashboard", action="store_true", help="serve the local status dashboard")
     parser.add_argument("--config", default="config.json", help="dashboard configuration path")
     parser.add_argument("--port", type=int, default=8080, help="dashboard port")
+    parser.add_argument("--dashboard-token", help="Bearer token for dashboard configuration access")
+    parser.add_argument("--log-file", default="vamc.log.jsonl", help="JSON Lines system log path")
+    parser.add_argument("--view-logs", action="store_true", help="view recent system logs and exit")
+    parser.add_argument("--export-logs", metavar="PATH", help="export system logs to JSON or CSV")
+    parser.add_argument("--export-format", choices=("json", "csv"), default="json")
     args = parser.parse_args()
 
+<<<<<<< HEAD
     if args.voice and args.gestures:
         parser.error("--voice and --gestures cannot be used together")
+=======
+    log = SystemLog(args.log_file)
+    if args.view_logs:
+        print(json.dumps(log.view(), indent=2))
+        return
+    if args.export_logs:
+        print(f"Exported {log.export(args.export_logs, args.export_format)} log entries")
+        return
+>>>>>>> origin/main
 
     if args.real:
         if platform.system() == "Windows":
@@ -84,12 +109,16 @@ def main() -> None:
     else:
         media = MockMediaController()
         feedback = SystemFeedback() if args.feedback else MemoryFeedback()
+<<<<<<< HEAD
 
     controller = VAMCController(media, feedback)
 
+=======
+    controller = VAMCController(media, feedback, system_log=log)
+>>>>>>> origin/main
     dashboard = None
     if args.dashboard:
-        dashboard = serve(controller, args.config, port=args.port)
+        dashboard = serve(controller, args.config, port=args.port, dashboard_token=args.dashboard_token)
         Thread(target=dashboard.serve_forever, daemon=True).start()
         print(f"VAMC dashboard running at http://127.0.0.1:{args.port}")
 

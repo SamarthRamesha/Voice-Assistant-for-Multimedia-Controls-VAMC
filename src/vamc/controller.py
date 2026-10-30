@@ -6,6 +6,7 @@ from time import monotonic
 from .commands import CommandIntent, IntentMapper
 from .feedback import Feedback, FeedbackState
 from .gestures import Gesture, GestureClassifier, SwipeDetector
+from .logs import SystemLog
 from .media import MediaController
 
 
@@ -17,6 +18,7 @@ class VAMCController:
     history: list[dict[str, object]] = field(default_factory=list)
     gesture_classifier: GestureClassifier = field(default_factory=GestureClassifier)
     swipe_detector: SwipeDetector = field(default_factory=SwipeDetector)
+    system_log: SystemLog = field(default_factory=SystemLog)
     _fist_active: bool = field(default=False, init=False)
 
     def set_listening(self) -> None:
@@ -29,17 +31,20 @@ class VAMCController:
         if command is None:
             self.feedback.state(FeedbackState.ERROR)
             self.feedback.error("Command not recognised")
+            self.system_log.record("voice", text, "error", "command not recognised")
             return False
         try:
             self._execute(command.intent)
         except Exception as exc:
             self.feedback.state(FeedbackState.ERROR)
             self.feedback.error(f"Command failed: {exc}")
+            self.system_log.record("voice", command.intent.value, "error", str(exc))
             return False
         elapsed_ms = round((monotonic() - started) * 1000, 2)
         self.history.append({"phrase": command.phrase, "intent": command.intent.value, "latency_ms": elapsed_ms})
         self.feedback.state(FeedbackState.SUCCESS)
         self.feedback.confirm(f"Executed {command.intent.value.replace('_', ' ')}")
+        self.system_log.record("voice", command.intent.value, "success", f"latency_ms={elapsed_ms}")
         return True
 
     def handle_gesture(self, landmarks: list[object]) -> bool:
@@ -55,14 +60,17 @@ class VAMCController:
                 return False
             self._fist_active = True
             self.media.pause() if getattr(self.media, "playing", False) else self.media.play()
+            self.system_log.record("gesture", "fist", "success", "play_pause_toggle")
             return True
         self._fist_active = False
         gesture = self.swipe_detector.detect(landmarks)
         if gesture == Gesture.SWIPE_RIGHT:
             self.media.volume_up()
+            self.system_log.record("gesture", gesture.value, "success", "volume_up")
             return True
         if gesture == Gesture.SWIPE_LEFT:
             self.media.volume_down()
+            self.system_log.record("gesture", gesture.value, "success", "volume_down")
             return True
         return False
 

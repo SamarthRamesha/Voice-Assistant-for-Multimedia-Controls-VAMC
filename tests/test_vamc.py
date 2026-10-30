@@ -14,7 +14,12 @@ from vamc.dashboard import ConfigStore, serve
 from vamc.feedback import FeedbackState, MemoryFeedback, SystemFeedback
 from vamc.gestures import CameraGestureRunner, Gesture, GestureClassifier, SwipeDetector
 from vamc.media import LinuxMediaController, MockMediaController, WindowsMediaController
+<<<<<<< HEAD
 from vamc.voice import PushToTalk, TextRecognizer, VoiceActivation, VoskRecognizer, WakeWordDetector
+=======
+from vamc.logs import SystemLog
+from vamc.voice import PushToTalk, TextRecognizer, VoiceActivation, WakeWordDetector, VoskRecognizer
+>>>>>>> origin/main
 
 
 def make_controller():
@@ -100,6 +105,39 @@ def test_custom_phrase_triggers_mapped_action():
     controller.mapper.register("make it louder", CommandIntent.VOLUME_UP)
     assert controller.handle_text("make it louder")
     assert media.volume == 60
+
+
+def test_system_log_records_commands_and_persists_exports(tmp_path):
+    log_path = tmp_path / "system.jsonl"
+    system_log = SystemLog(log_path)
+    controller = VAMCController(MockMediaController(), MemoryFeedback(), system_log=system_log)
+    assert controller.handle_text("play")
+    assert not controller.handle_text("not a command")
+    assert [entry["status"] for entry in system_log.view()] == ["success", "error"]
+
+    reopened = SystemLog(log_path)
+    assert len(reopened.view()) == 2
+    json_path = tmp_path / "logs.json"
+    csv_path = tmp_path / "logs.csv"
+    assert reopened.export(json_path) == 2
+    assert reopened.export(csv_path, "csv") == 2
+    assert '"source": "voice"' in json_path.read_text()
+    assert "timestamp,source,action,status,details" in csv_path.read_text()
+
+
+def test_system_log_retains_only_last_30_days(tmp_path):
+    log_path = tmp_path / "system.jsonl"
+    old_entry = {
+        "timestamp": "2020-01-01T00:00:00+00:00",
+        "source": "voice",
+        "action": "old",
+        "status": "success",
+        "details": "",
+    }
+    log_path.write_text(json.dumps(old_entry) + "\n")
+    log = SystemLog(log_path)
+    log.record("voice", "new", "success")
+    assert [entry["action"] for entry in log.view()] == ["new"]
 
 
 def test_linux_media_controller_uses_safe_commands(monkeypatch):
@@ -331,7 +369,7 @@ def test_config_store_persists_wifi_and_wake_word(tmp_path):
 def test_dashboard_serves_status_history_and_config(tmp_path):
     controller, media, _ = make_controller()
     controller.handle_text("volume up")
-    server = serve(controller, tmp_path / "config.json", port=0)
+    server = serve(controller, tmp_path / "config.json", port=0, dashboard_token="test-token")
     thread = Thread(target=server.serve_forever, daemon=True)
     thread.start()
     connection = HTTPConnection("127.0.0.1", server.server_port)
@@ -346,6 +384,20 @@ def test_dashboard_serves_status_history_and_config(tmp_path):
         assert status["volume"] == media.volume
         assert status["connection_status"] == "connected"
         assert len(status["history"]) == 1
+        assert len(status["logs"]) == 1
+
+        connection.request("GET", "/api/config")
+        assert connection.getresponse().status == 401
+
+        connection.request("GET", "/api/logs")
+        logs = json.loads(connection.getresponse().read())
+        assert logs["logs"][0]["action"] == "volume_up"
+
+        connection.request("GET", "/api/logs/export?format=csv")
+        export_response = connection.getresponse()
+        assert export_response.status == 200
+        assert export_response.getheader("Content-Type") == "text/csv"
+        assert b"timestamp,source,action,status,details" in export_response.read()
 
         payload = json.dumps({
             "wifi_ssid": "test-network",
@@ -356,12 +408,12 @@ def test_dashboard_serves_status_history_and_config(tmp_path):
             "POST",
             "/api/config",
             body=payload,
-            headers={"Content-Type": "application/json"},
+            headers={"Content-Type": "application/json", "Authorization": "Bearer test-token"},
         )
         assert connection.getresponse().status == 200
         assert ConfigStore(tmp_path / "config.json").load().wake_word == "assistant"
 
-        connection.request("GET", "/api/config")
+        connection.request("GET", "/api/config", headers={"Authorization": "Bearer test-token"})
         config_response = json.loads(connection.getresponse().read())
         assert config_response == {"wifi_ssid": "test-network", "wake_word": "assistant"}
         assert "secret" not in json.dumps(config_response)
