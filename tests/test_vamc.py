@@ -1,8 +1,14 @@
+import base64
+from http.client import HTTPConnection
+import json
+from threading import Thread
+
 import pytest
 
 from vamc.commands import CommandIntent, IntentMapper
 from vamc.controller import VAMCController
-from vamc.feedback import FeedbackState, MemoryFeedback
+from vamc.dashboard import ConfigStore, serve
+from vamc.feedback import FeedbackState, MemoryFeedback, SystemFeedback
 from vamc.gestures import CameraGestureRunner, Gesture, GestureClassifier, SwipeDetector
 from vamc.media import LinuxMediaController, MockMediaController, WindowsMediaController
 from vamc.voice import PushToTalk, TextRecognizer, VoiceActivation, WakeWordDetector
@@ -280,3 +286,80 @@ def test_gestures_control_volume_and_toggle_playback():
     assert controller.handle_gesture(open_hand) is False
     assert controller.handle_gesture(fist)
     assert not media.playing
+
+
+def test_system_feedback_speaks_success_and_updates_indicator(monkeypatch):
+    calls = []
+
+    class Indicator:
+        def __init__(self):
+            self.states = []
+
+        def set_state(self, value):
+            self.states.append(value)
+
+    indicator = Indicator()
+    monkeypatch.setattr(
+        "vamc.feedback.subprocess.run",
+        lambda command, **kwargs: calls.append((command, kwargs)),
+    )
+    feedback = SystemFeedback(indicator=indicator)
+    feedback.state(FeedbackState.LISTENING)
+    feedback.state(FeedbackState.PROCESSING)
+    feedback.error("Command failed")
+    assert indicator.states == [FeedbackState.LISTENING, FeedbackState.PROCESSING]
+    assert calls == [(("espeak", "Command failed"), {"check": True, "capture_output": True})]
+
+
+def test_config_store_persists_wifi_and_wake_word(tmp_path):
+    store = ConfigStore(tmp_path / "config.json")
+    config = store.load()
+    assert config.wake_word == "computer"
+    config.wifi_ssid = "test-network"
+    config.wifi_password = "secret"
+    config.wake_word = "assistant"
+    store.save(config)
+    assert store.load() == config
+
+
+def test_dashboard_serves_status_history_and_config(tmp_path):
+    controller, media, _ = make_controller()
+    controller.handle_text("volume up")
+    server = serve(controller, tmp_path / "config.json", port=0)
+    thread = Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    connection = HTTPConnection("127.0.0.1", server.server_port)
+    try:
+        connection.request("GET", "/")
+        response = connection.getresponse()
+        assert response.status == 200
+        assert b"/api/status" in response.read()
+
+        connection.request("GET", "/api/status")
+        status = json.loads(connection.getresponse().read())
+        assert status["volume"] == media.volume
+        assert status["connection_status"] == "connected"
+        assert len(status["history"]) == 1
+
+        payload = json.dumps({
+            "wifi_ssid": "test-network",
+            "wifi_password": "secret",
+            "wake_word": "assistant",
+        })
+        connection.request(
+            "POST",
+            "/api/config",
+            body=payload,
+            headers={"Content-Type": "application/json"},
+        )
+        assert connection.getresponse().status == 200
+        assert ConfigStore(tmp_path / "config.json").load().wake_word == "assistant"
+
+        connection.request("GET", "/api/config")
+        config_response = json.loads(connection.getresponse().read())
+        assert config_response == {"wifi_ssid": "test-network", "wake_word": "assistant"}
+        assert "secret" not in json.dumps(config_response)
+    finally:
+        connection.close()
+        server.shutdown()
+        server.server_close()

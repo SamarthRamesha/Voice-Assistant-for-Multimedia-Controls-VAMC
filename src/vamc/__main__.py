@@ -1,8 +1,10 @@
 import argparse
 import platform
+from threading import Thread
 
 from .controller import VAMCController
-from .feedback import MemoryFeedback
+from .dashboard import serve
+from .feedback import FeedbackState, GpioStatusIndicator, MemoryFeedback, SystemFeedback
 from .gestures import CameraGestureRunner
 from .media import LinuxMediaController, MockMediaController, WindowsMediaController
 
@@ -12,6 +14,13 @@ def main() -> None:
     parser.add_argument("--real", action="store_true", help="use the native media adapter")
     parser.add_argument("--gestures", action="store_true", help="control media with the camera")
     parser.add_argument("--camera", type=int, default=0, help="camera index for gesture mode")
+    parser.add_argument("--feedback", action="store_true", help="enable audible system feedback")
+    parser.add_argument("--led-listening-pin", type=int, help="GPIO pin for listening state")
+    parser.add_argument("--led-processing-pin", type=int, help="GPIO pin for processing state")
+    parser.add_argument("--led-error-pin", type=int, help="GPIO pin for error state")
+    parser.add_argument("--dashboard", action="store_true", help="serve the local status dashboard")
+    parser.add_argument("--config", default="config.json", help="dashboard configuration path")
+    parser.add_argument("--port", type=int, default=8080, help="dashboard port")
     args = parser.parse_args()
 
     if args.real:
@@ -21,11 +30,28 @@ def main() -> None:
             media = LinuxMediaController()
         else:
             parser.error("--real is supported on Windows and Linux")
-        feedback = MemoryFeedback()
+        indicator = None
+        led_pins = {
+            state: pin for state, pin in (
+                (FeedbackState.LISTENING, args.led_listening_pin),
+                (FeedbackState.PROCESSING, args.led_processing_pin),
+                (FeedbackState.ERROR, args.led_error_pin),
+            ) if pin is not None
+        }
+        if led_pins:
+            indicator = GpioStatusIndicator({
+                state: pin for state, pin in led_pins.items()
+            })
+        feedback = SystemFeedback(indicator=indicator) if args.feedback else MemoryFeedback()
     else:
         media = MockMediaController()
-        feedback = MemoryFeedback()
+        feedback = SystemFeedback() if args.feedback else MemoryFeedback()
     controller = VAMCController(media, feedback)
+    dashboard = None
+    if args.dashboard:
+        dashboard = serve(controller, args.config, port=args.port)
+        Thread(target=dashboard.serve_forever, daemon=True).start()
+        print(f"VAMC dashboard running at http://127.0.0.1:{args.port}")
     if args.gestures:
         print("VAMC gesture mode active. Press Ctrl-C to exit.")
         CameraGestureRunner(controller.handle_gesture, camera_index=args.camera).run()
@@ -37,7 +63,8 @@ def main() -> None:
             controller.handle_text(text)
             print(f"volume={media.volume}% muted={media.muted} playing={media.playing}")
     except EOFError:
-        return
+        if dashboard is not None:
+            dashboard.shutdown()
 
 
 if __name__ == "__main__":
