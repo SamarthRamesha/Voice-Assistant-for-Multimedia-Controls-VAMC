@@ -391,3 +391,126 @@ Copy and paste this prompt along with the relevant GitHub Issue and, where possi
 **The goal is a working and verifiable multimedia-control system, not simply a repository full of code.**
 
 Every implementation should map to a requirement, every requirement should have an appropriate verification method, and every claim of completion should be backed by evidence. Keep the design small, the interfaces clear, the tests repeatable and the Git history reviewable.
+
+## 13. Sprint 2 – Dashboard and Security Implementation
+
+This section documents the implementation of the Dashboard and Security requirements assigned to the Dashboard & Security workstream.
+
+### 13.1 Implemented Security Requirements
+
+| Requirement | Description | Implementation |
+|---|---|---|
+| SR-002 | Secure dashboard communication | HTTPS/TLS is supported. Non-loopback dashboard access requires TLS. |
+| SR-003 | Protect stored credentials and API keys | Wi-Fi passwords and API keys are encrypted at rest using Fernet symmetric encryption. |
+| SR-004 | Verify signed OTA updates | Ed25519 digital signatures are verified before an update package is staged for installation. |
+| SR-005 | Limit repeated failed login attempts | Login is blocked after 5 consecutive failed attempts for 5 minutes. |
+
+### 13.2 SR-002 – Dashboard TLS
+
+The dashboard supports HTTPS using a TLS certificate and private key.
+
+- Local loopback access can use HTTP.
+- Dashboard access through a non-loopback network interface requires TLS.
+- TLS 1.2 or later is required.
+- Supplying a certificate without its corresponding private key is rejected.
+
+Example PowerShell command:
+
+```powershell
+$env:VAMC_DASHBOARD_TOKEN = "replace-with-a-local-secret"
+
+$env:PYTHONPATH = "src"
+
+python -m vamc --dashboard --host 0.0.0.0 --dashboard-token $env:VAMC_DASHBOARD_TOKEN --tls-cert path\to\certificate.pem --tls-key path\to\private-key.pem
+```
+
+Replace the certificate and private-key paths with valid files. Do not commit private keys or dashboard tokens to the repository.
+
+### 13.3 SR-003 – Encryption of Stored Credentials
+
+The application uses Fernet symmetric encryption through the `cryptography` library.
+
+The security module provides:
+
+- Key generation and loading through `load_or_create_key()`.
+- Encryption and decryption through `SecretBox`.
+- Encryption of stored Wi-Fi passwords and API keys.
+- Support for existing plaintext configuration values so they can be migrated when the configuration is saved again.
+- Exclusion of local secret and configuration files from Git.
+
+The dashboard configuration endpoint does not return stored passwords or API keys in its GET response.
+
+**Important security considerations:**
+
+- Keep the encryption key separate from the repository.
+- Back up the key securely. If it is lost, encrypted credentials cannot be recovered.
+- The optional API-key field is supported by configuration storage; this does not imply integration with an external API service.
+- Key-file permission handling is platform-dependent. POSIX file permissions are tested on supported systems; Windows ACL hardening is not claimed by this implementation.
+
+### 13.4 SR-004 – Signed OTA Update Verification
+
+The OTA module uses Ed25519 public-key cryptography to verify update packages.
+
+The implementation supports:
+
+- Generating an Ed25519 signing key pair.
+- Signing update package contents.
+- Verifying signatures before accepting an update.
+- Rejecting unsigned packages.
+- Rejecting packages with invalid signatures or untrusted public keys.
+- Staging the exact package bytes that were verified.
+
+An update must pass signature verification before the installer callback is invoked.
+
+**Implementation limitation:** The current implementation verifies and stages update packages. It does not automatically replace or restart the running application. The private signing key must be kept secure and must not be committed to Git.
+
+### 13.5 SR-005 – Login Attempt Limiting
+
+The dashboard uses `LoginLimiter` to enforce the login lockout requirement.
+
+- A maximum of 5 consecutive failed login attempts is allowed.
+- After the fifth failure, further login attempts are blocked for 300 seconds (5 minutes).
+- A successful login resets the failure count.
+- Attempts are tracked separately for each client IP address.
+
+**Implementation limitation:** Login attempt tracking is held in memory. The counters are reset when the application process restarts.
+
+### 13.6 Running the Automated Tests
+
+Activate the project virtual environment and run the test suite from the repository root:
+
+```powershell
+$env:PYTHONPATH = "src"
+python -m pytest -q tests
+```
+
+The security-specific tests can be run separately:
+
+```powershell
+python -m pytest -q tests/test_security.py
+```
+
+The local test results recorded during implementation were:
+
+- Security tests: **17 passed, 1 skipped**.
+- Full test suite: **51 passed, 1 skipped**.
+
+The skipped test is platform-dependent. Test results should be rechecked after subsequent changes and in the GitHub Actions environment.
+
+### 13.7 Files Added or Modified
+
+The Dashboard and Security implementation includes:
+
+| File | Purpose |
+|---|---|
+| `src/vamc/security.py` | Credential encryption and login attempt limiting |
+| `src/vamc/ota.py` | OTA package signing and verification |
+| `src/vamc/dashboard.py` | Dashboard TLS, configuration protection and login limiting |
+| `src/vamc/__main__.py` | Command-line options for TLS and OTA verification |
+| `tests/test_security.py` | Security requirement tests |
+| `tests/test_vamc.py` | Dashboard and application regression tests |
+| `requirements.txt` | Cryptography dependency |
+| `.gitignore` | Excludes local secrets and generated update files |
+| `.github/workflows/ci.yml` | Runs automated tests in GitHub Actions |
+
+These changes address SR-002, SR-003, SR-004 and SR-005. Final acceptance should be based on the corresponding GitHub Issue acceptance criteria, test evidence and review.

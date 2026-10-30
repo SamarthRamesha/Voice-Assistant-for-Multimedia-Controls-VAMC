@@ -17,3 +17,8 @@ models/
 
 # Generated benchmark results
 results/
+
+# VAMC secrets
+*.key
+config.json
+updates/

@@ -14,12 +14,8 @@ from vamc.dashboard import ConfigStore, serve
 from vamc.feedback import FeedbackState, MemoryFeedback, SystemFeedback
 from vamc.gestures import CameraGestureRunner, Gesture, GestureClassifier, SwipeDetector
 from vamc.media import LinuxMediaController, MockMediaController, WindowsMediaController
-<<<<<<< HEAD
-from vamc.voice import PushToTalk, TextRecognizer, VoiceActivation, VoskRecognizer, WakeWordDetector
-=======
 from vamc.logs import SystemLog
-from vamc.voice import PushToTalk, TextRecognizer, VoiceActivation, WakeWordDetector, VoskRecognizer
->>>>>>> origin/main
+from vamc.voice import PushToTalk, TextRecognizer, VoiceActivation, VoskRecognizer, WakeWordDetector
 
 
 def make_controller():

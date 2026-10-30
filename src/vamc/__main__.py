@@ -17,7 +17,6 @@ from .logs import SystemLog
 from .media import LinuxMediaController, MockMediaController, WindowsMediaController
 from .voice import MicrophoneRecorder, VoskRecognizer
 
-from vamc.logs import SystemLog
 from vamc.voice import (
     PushToTalk,
     TextRecognizer,
@@ -60,6 +59,12 @@ def main() -> None:
     parser.add_argument("--dashboard", action="store_true", help="serve the local status dashboard")
     parser.add_argument("--config", default="config.json", help="dashboard configuration path")
     parser.add_argument("--port", type=int, default=8080, help="dashboard port")
+    parser.add_argument("--host", default="127.0.0.1", help="dashboard bind address (non-localhost requires TLS)")
+    parser.add_argument("--tls-cert", help="TLS certificate (PEM) for the dashboard")
+    parser.add_argument("--tls-key", help="TLS private key (PEM) for the dashboard")
+    parser.add_argument("--install-update", metavar="PACKAGE", help="verify and stage a signed update package, then exit")
+    parser.add_argument("--update-signature", help="detached signature file (default: PACKAGE.sig)")
+    parser.add_argument("--update-public-key", default="update_public_key.pem", help="trusted public key (PEM)")
     parser.add_argument("--dashboard-token", help="Bearer token for dashboard configuration access")
     parser.add_argument("--log-file", default="vamc.log.jsonl", help="JSON Lines system log path")
     parser.add_argument("--view-logs", action="store_true", help="view recent system logs and exit")
@@ -67,10 +72,9 @@ def main() -> None:
     parser.add_argument("--export-format", choices=("json", "csv"), default="json")
     args = parser.parse_args()
 
-<<<<<<< HEAD
     if args.voice and args.gestures:
         parser.error("--voice and --gestures cannot be used together")
-=======
+
     log = SystemLog(args.log_file)
     if args.view_logs:
         print(json.dumps(log.view(), indent=2))
@@ -78,7 +82,21 @@ def main() -> None:
     if args.export_logs:
         print(f"Exported {log.export(args.export_logs, args.export_format)} log entries")
         return
->>>>>>> origin/main
+
+    if args.install_update:
+        from .ota import UpdateRejected, install_update
+        try:
+            staged = install_update(
+                args.install_update,
+                args.update_signature or args.install_update + ".sig",
+                args.update_public_key,
+            )
+        except UpdateRejected as exc:
+            log.record("ota", "install_update", "rejected", str(exc))
+            parser.exit(1, f"Update rejected: {exc}\n")
+        log.record("ota", "install_update", "success", str(staged))
+        print(f"Update verified and staged at {staged}")
+        return
 
     if args.real:
         if platform.system() == "Windows":
@@ -109,18 +127,24 @@ def main() -> None:
     else:
         media = MockMediaController()
         feedback = SystemFeedback() if args.feedback else MemoryFeedback()
-<<<<<<< HEAD
-
-    controller = VAMCController(media, feedback)
-
-=======
     controller = VAMCController(media, feedback, system_log=log)
->>>>>>> origin/main
     dashboard = None
     if args.dashboard:
-        dashboard = serve(controller, args.config, port=args.port, dashboard_token=args.dashboard_token)
+        try:
+            dashboard = serve(
+                controller,
+                args.config,
+                host=args.host,
+                port=args.port,
+                dashboard_token=args.dashboard_token,
+                certfile=args.tls_cert,
+                keyfile=args.tls_key,
+            )
+        except ValueError as exc:
+            parser.error(str(exc))
         Thread(target=dashboard.serve_forever, daemon=True).start()
-        print(f"VAMC dashboard running at http://127.0.0.1:{args.port}")
+        scheme = "https" if args.tls_cert else "http"
+        print(f"VAMC dashboard running at {scheme}://{args.host}:{args.port}")
 
     try:
         if args.gestures:
