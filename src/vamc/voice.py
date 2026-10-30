@@ -4,6 +4,8 @@ from dataclasses import dataclass
 import json
 from typing import Protocol
 
+import numpy as np
+import sounddevice as sd
 
 class SpeechRecognizer(Protocol):
     def transcribe(self, audio: bytes) -> str: ...
@@ -27,27 +29,109 @@ class TextRecognizer:
 
 
 class VoskRecognizer:
-    """On-device ASR adapter; requires a downloaded Vosk model directory."""
+    """On-device ASR adapter; optionally supports command-constrained grammar."""
 
-    def __init__(self, model_path: str, sample_rate: int = 16_000) -> None:
+    def __init__(
+        self,
+        model_path: str,
+        sample_rate: int = 16_000,
+        grammar: list[str] | None = None,
+    ) -> None:
         try:
             import vosk
         except ImportError as exc:
             raise RuntimeError("Install vosk to use on-device speech recognition") from exc
+
         self._vosk = vosk
         self._model = vosk.Model(model_path)
         self._sample_rate = sample_rate
+        self._grammar = grammar
 
+	
     def transcribe(self, audio: bytes) -> str:
-        recognizer = self._vosk.KaldiRecognizer(self._model, self._sample_rate)
-        if not recognizer.AcceptWaveform(audio):
-            raise ValueError("ASR did not produce a final result")
-        result = json.loads(recognizer.Result())
-        text = result.get("text")
-        if not isinstance(text, str) or not text:
-            raise ValueError("ASR returned no transcript")
-        return text
+        if self._grammar:
+            grammar_json = json.dumps(self._grammar + ["[unk]"])
+            recognizer = self._vosk.KaldiRecognizer(
+                self._model,
+                self._sample_rate,
+                grammar_json,
+            )
+        else:
+            recognizer = self._vosk.KaldiRecognizer(
+                self._model,
+                self._sample_rate,
+            )
 
+        recognizer.AcceptWaveform(audio)
+
+        result = json.loads(recognizer.FinalResult())
+        text = result.get("text")
+
+        if not isinstance(text, str) or not text:
+            raise ValueError("No speech could be recognised")
+
+        return text
+	
+
+class MicrophoneRecorder:
+    """Capture one speech command from the default microphone."""
+
+    def __init__(
+        self,
+        sample_rate: int = 16_000,
+        silence_duration: float = 1.2,
+        max_duration: float = 6.0,
+        threshold: float = 0.015,
+    ) -> None:
+        self.sample_rate = sample_rate
+        self.silence_duration = silence_duration
+        self.max_duration = max_duration
+        self.threshold = threshold
+
+    def record(self) -> bytes:
+        print("Listening... speak your command.")
+
+        block_duration = 0.1
+        block_size = int(self.sample_rate * block_duration)
+        silence_blocks_required = int(
+            self.silence_duration / block_duration
+        )
+        max_blocks = int(self.max_duration / block_duration)
+
+        audio_blocks = []
+        speech_started = False
+        silence_blocks = 0
+
+        with sd.InputStream(
+            samplerate=self.sample_rate,
+            channels=1,
+            dtype="int16",
+            blocksize=block_size,
+        ) as stream:
+            for _ in range(max_blocks):
+                audio, overflowed = stream.read(block_size)
+
+                if overflowed:
+                    print("Warning: microphone input overflowed.")
+
+                audio = audio.reshape(-1)
+                volume = np.sqrt(np.mean(audio.astype(np.float32) ** 2))
+                audio_blocks.append(audio.copy())
+
+                if volume >= self.threshold * 32768:
+                    speech_started = True
+                    silence_blocks = 0
+                elif speech_started:
+                    silence_blocks += 1
+
+                if speech_started and silence_blocks >= silence_blocks_required:
+                    break
+
+        if not speech_started:
+            raise ValueError("No speech detected. Please try again.")
+
+        samples = np.concatenate(audio_blocks)
+        return samples.astype(np.int16).tobytes()
 
 @dataclass
 class PushToTalk:
