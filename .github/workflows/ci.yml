@@ -20,5 +20,20 @@ jobs:
       - name: Verify README exists
         run: test -s README.md
 
-      - name: Confirm workflow execution
-        run: echo "Repository checks passed. Project-specific tests will be added when the source code is available."
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install system audio library
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libportaudio2
+
+      - name: Install project dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+
+      - name: Run automated tests
+        run: PYTHONPATH=src python -m pytest -q tests

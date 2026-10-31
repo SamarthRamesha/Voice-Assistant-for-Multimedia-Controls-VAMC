@@ -6,3 +6,5 @@ gpiozero>=2.0
 mediapipe>=0.10.0
 opencv-python>=4.8.0
 pycaw>=20230407; platform_system == "Windows"
+
+cryptography>=42.0

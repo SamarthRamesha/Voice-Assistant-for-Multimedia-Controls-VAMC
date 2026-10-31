@@ -1,3 +1,4 @@
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -5,7 +6,7 @@ import json
 from typing import Protocol
 
 import numpy as np
-import sounddevice as sd
+
 
 class SpeechRecognizer(Protocol):
     def transcribe(self, audio: bytes) -> str: ...
@@ -40,14 +41,15 @@ class VoskRecognizer:
         try:
             import vosk
         except ImportError as exc:
-            raise RuntimeError("Install vosk to use on-device speech recognition") from exc
+            raise RuntimeError(
+                "Install vosk to use on-device speech recognition"
+            ) from exc
 
         self._vosk = vosk
         self._model = vosk.Model(model_path)
         self._sample_rate = sample_rate
         self._grammar = grammar
 
-	
     def transcribe(self, audio: bytes) -> str:
         if self._grammar:
             grammar_json = json.dumps(self._grammar + ["[unk]"])
@@ -71,7 +73,7 @@ class VoskRecognizer:
             raise ValueError("No speech could be recognised")
 
         return text
-	
+
 
 class MicrophoneRecorder:
     """Capture one speech command from the default microphone."""
@@ -89,6 +91,9 @@ class MicrophoneRecorder:
         self.threshold = threshold
 
     def record(self) -> bytes:
+        # Import only when microphone recording is actually requested.
+        import sounddevice as sd
+
         print("Listening... speak your command.")
 
         block_duration = 0.1
@@ -115,7 +120,9 @@ class MicrophoneRecorder:
                     print("Warning: microphone input overflowed.")
 
                 audio = audio.reshape(-1)
-                volume = np.sqrt(np.mean(audio.astype(np.float32) ** 2))
+                volume = np.sqrt(
+                    np.mean(audio.astype(np.float32) ** 2)
+                )
                 audio_blocks.append(audio.copy())
 
                 if volume >= self.threshold * 32768:
@@ -124,7 +131,10 @@ class MicrophoneRecorder:
                 elif speech_started:
                     silence_blocks += 1
 
-                if speech_started and silence_blocks >= silence_blocks_required:
+                if (
+                    speech_started
+                    and silence_blocks >= silence_blocks_required
+                ):
                     break
 
         if not speech_started:
@@ -132,6 +142,7 @@ class MicrophoneRecorder:
 
         samples = np.concatenate(audio_blocks)
         return samples.astype(np.int16).tobytes()
+
 
 @dataclass
 class PushToTalk:
@@ -155,7 +166,10 @@ class GpioPushToTalk:
         try:
             from gpiozero import Button
         except ImportError as exc:
-            raise RuntimeError("Install gpiozero to use the GPIO button adapter") from exc
+            raise RuntimeError(
+                "Install gpiozero to use the GPIO button adapter"
+            ) from exc
+
         self._button = Button(pin)
         self._button.when_pressed = on_press
 
