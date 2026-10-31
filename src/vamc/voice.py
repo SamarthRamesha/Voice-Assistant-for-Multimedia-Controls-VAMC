@@ -72,7 +72,10 @@ class VoskRecognizer:
         if not isinstance(text, str) or not text:
             raise ValueError("No speech could be recognised")
 
-        return text
+        cleaned = " ".join(word for word in text.split() if word != "[unk]")
+        if not cleaned:
+            raise ValueError("No supported speech could be recognised")
+        return cleaned
 
 
 class MicrophoneRecorder:
