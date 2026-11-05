@@ -39,7 +39,7 @@ class MemoryFeedback:
 class SystemFeedback:
     """Provide audible confirmations and optional indicator output."""
 
-    def __init__(self, speech_command: str = "espeak", indicator: "StatusIndicator | None" = None) -> None:
+    def __init__(self, speech_command: str = "say", indicator: "StatusIndicator | None" = None) -> None:
         self.speech_command = speech_command
         self.indicator = indicator
 
