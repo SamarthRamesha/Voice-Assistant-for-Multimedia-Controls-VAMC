@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 import re
 import subprocess
 from typing import Protocol
-
+import json
 
 class MediaController(Protocol):
     volume: int
@@ -211,3 +211,144 @@ class WindowsMediaController:
         key = self._MEDIA_KEYS[name]
         self._user32.keybd_event(key, 0, 0, 0)
         self._user32.keybd_event(key, 0, self._KEYEVENTF_KEYUP, 0)
+
+
+class MacOSMediaController:
+    """Controls system audio and whichever app owns the macOS media session."""
+
+    def __init__(self, step: int = 10) -> None:
+        self.step = max(0, min(100, step))
+        self._previous_volume: int | None = None
+
+    @staticmethod
+    def _run(*command: str) -> subprocess.CompletedProcess[str]:
+        try:
+            return subprocess.run(
+                command,
+                check=True,
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+        except FileNotFoundError as exc:
+            raise RuntimeError(
+                f"Required macOS command is unavailable: {command[0]}"
+            ) from exc
+        except subprocess.TimeoutExpired as exc:
+            raise RuntimeError(
+                f"macOS media command timed out: {' '.join(command)}"
+            ) from exc
+        except subprocess.CalledProcessError as exc:
+            detail = exc.stderr.strip() or "command failed"
+            raise RuntimeError(
+                f"{' '.join(command)}: {detail}"
+            ) from exc
+
+    @property
+    def volume(self) -> int:
+        result = self._run(
+            "osascript",
+            "-e",
+            "get volume settings",
+        )
+
+        match = re.search(r"output volume:\s*(\d+)", result.stdout)
+        if not match:
+            raise RuntimeError(
+                f"Could not read macOS output volume: {result.stdout.strip()}"
+            )
+
+        return int(match.group(1))
+
+    @volume.setter
+    def volume(self, value: int) -> None:
+        value = max(0, min(100, value))
+        self._run(
+            "osascript",
+            "-e",
+            f"set volume output volume {value}",
+        )
+
+    @property
+    def muted(self) -> bool:
+        result = self._run(
+            "osascript",
+            "-e",
+            "get volume settings",
+        )
+
+        match = re.search(r"output muted:\s*(true|false)", result.stdout, re.I)
+        if not match:
+            raise RuntimeError(
+                f"Could not read macOS mute state: {result.stdout.strip()}"
+            )
+
+        return match.group(1).lower() == "true"
+
+    @property
+    def playing(self) -> bool:
+        result = self._run("media-control", "get", "--no-artwork")
+
+        try:
+            data = json.loads(result.stdout)
+        except json.JSONDecodeError as exc:
+            raise RuntimeError(
+                "media-control returned invalid JSON"
+            ) from exc
+
+        # The current media-control output may expose state at the root
+        # or inside a payload, depending on the command/output version.
+        state = data.get("payload", data)
+
+        if "isPlaying" in state:
+            return bool(state["isPlaying"])
+
+        if "playing" in state:
+            return bool(state["playing"])
+
+        if "playbackRate" in state:
+            return float(state["playbackRate"]) > 0
+
+        raise RuntimeError(
+            "Could not determine playback state from media-control output"
+        )
+
+    def volume_up(self) -> None:
+        self.volume = self.volume + self.step
+
+    def volume_down(self) -> None:
+        self.volume = self.volume - self.step
+
+    def mute(self) -> None:
+        if not self.muted:
+            self._previous_volume = self.volume
+
+        self._run(
+            "osascript",
+            "-e",
+            "set volume output muted true",
+        )
+
+    def unmute(self) -> None:
+        self._run(
+            "osascript",
+            "-e",
+            "set volume output muted false",
+        )
+
+        if self._previous_volume is not None:
+            self.volume = self._previous_volume
+            self._previous_volume = None
+
+    def play(self) -> None:
+        self._run("media-control", "play")
+
+    def pause(self) -> None:
+        self._run("media-control", "pause")
+
+    def next(self) -> None:
+        self._run("media-control", "next-track")
+
+    def previous(self) -> None:
+        self._run("media-control", "previous-track")
+

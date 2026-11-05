@@ -26,9 +26,30 @@ class IntentMapper:
     """Maps speech to an allow-listed intent; it never executes speech directly."""
 
     _defaults = {
-        CommandIntent.VOLUME_UP: ("volume up", "increase volume", "turn it up"),
-        CommandIntent.VOLUME_DOWN: ("volume down", "decrease volume", "turn it down"),
-        CommandIntent.MUTE: ("mute", "silence"),
+        CommandIntent.VOLUME_UP: (
+            "volume up",
+            "increase volume",
+            "increase the volume",
+            "turn it up",
+            "turn the volume up",
+        ),
+
+        CommandIntent.VOLUME_DOWN: (
+            "volume down",
+            "decrease volume",
+            "decrease the volume",
+            "turn it down",
+            "turn the volume down",
+        ),
+
+        CommandIntent.MUTE: (
+            "mute",
+            "silence",
+            "turn the sound off",
+            "turn sound off",
+            "turn off the sound",
+            "mute the audio",
+        ),
         CommandIntent.UNMUTE: ("unmute", "sound on", "turn sound on", "enable sound"),
         CommandIntent.PLAY: ("play", "resume"),
         CommandIntent.PAUSE: ("pause", "stop playback"),

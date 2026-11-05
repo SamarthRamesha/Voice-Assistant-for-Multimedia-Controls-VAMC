@@ -14,16 +14,14 @@ from .feedback import (
 )
 from .gestures import CameraGestureRunner
 from .logs import SystemLog
-from .media import LinuxMediaController, MockMediaController, WindowsMediaController
+from .media import (
+    LinuxMediaController,
+    MacOSMediaController,
+    MockMediaController,
+    WindowsMediaController,
+)
 from .voice import MicrophoneRecorder, VoskRecognizer
 
-from vamc.voice import (
-    PushToTalk,
-    TextRecognizer,
-    VoiceActivation,
-    VoskRecognizer,
-    WakeWordDetector,
-)
 
 COMMAND_GRAMMAR = [
     "volume up",
@@ -42,6 +40,18 @@ COMMAND_GRAMMAR = [
     "skip",
     "previous",
     "go back",
+    "increase the volume",
+    "turn it up",
+    "turn the volume up",
+    "decrease the volume",
+    "turn it down",
+    "turn the volume down",
+    "turn the sound off",
+    "turn sound off",
+    "turn off the sound",
+    "mute the audio",
+    "turn the volume up",
+    "turn the volume down",
 ]
 
 
@@ -99,12 +109,18 @@ def main() -> None:
         return
 
     if args.real:
-        if platform.system() == "Windows":
+        system = platform.system()
+
+        if system == "Windows":
             media = WindowsMediaController()
-        elif platform.system() == "Linux":
+        elif system == "Linux":
             media = LinuxMediaController()
+        elif system == "Darwin":
+            media = MacOSMediaController()
         else:
-            parser.error("--real is supported on Windows and Linux")
+            parser.error(f"--real is not supported on {system}")
+
+        indicator = None
 
         indicator = None
         led_pins = {
