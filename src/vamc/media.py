@@ -94,6 +94,11 @@ class LinuxMediaController:
         states = re.findall(r"\[(on|off)\]", result.stdout)
         return bool(states) and states[-1] == "off"
 
+    @property
+    def playing(self) -> bool:
+        result = self._run("playerctl", "status")
+        return result.stdout.strip().lower() == "playing"
+
     def volume_up(self) -> None:
         self.volume = self.volume + self.step
 

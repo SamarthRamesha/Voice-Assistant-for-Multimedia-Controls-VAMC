@@ -205,6 +205,14 @@ def test_linux_media_controller_supports_track_navigation(monkeypatch):
     ]
 
 
+def test_linux_media_controller_reports_playback_status(monkeypatch):
+    class Result:
+        stdout = "Playing\n"
+
+    monkeypatch.setattr("vamc.media.subprocess.run", lambda *args, **kwargs: Result())
+    assert LinuxMediaController().playing
+
+
 def test_windows_media_controller_restores_volume_and_sends_media_keys():
     class Endpoint:
         def __init__(self):
