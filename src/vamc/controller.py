@@ -50,28 +50,55 @@ class VAMCController:
     def handle_gesture(self, landmarks: list[object]) -> bool:
         """Apply a fist toggle or a horizontal swipe to the media controller."""
         if not landmarks:
-            self.swipe_detector.detect(landmarks)
+            self.swipe_detector.detect([])
             self._fist_active = False
             return False
+
         is_fist = self.gesture_classifier.classify_fist(landmarks)
+
         if is_fist:
             self.swipe_detector.detect([])
             if self._fist_active:
                 return False
+
             self._fist_active = True
-            self.media.pause() if getattr(self.media, "playing", False) else self.media.play()
-            self.system_log.record("gesture", "fist", "success", "play_pause_toggle")
+            if getattr(self.media, "playing", False):
+                self.media.pause()
+            else:
+                self.media.play()
+
+            self.system_log.record(
+                "gesture", "fist", "success", "play_pause_toggle"
+            )
             return True
+
         self._fist_active = False
         gesture = self.swipe_detector.detect(landmarks)
-        if gesture == Gesture.SWIPE_RIGHT:
-            self.media.volume_up()
-            self.system_log.record("gesture", gesture.value, "success", "volume_up")
-            return True
-        if gesture == Gesture.SWIPE_LEFT:
-            self.media.volume_down()
-            self.system_log.record("gesture", gesture.value, "success", "volume_down")
-            return True
+
+        if gesture is not None:
+            print(f"[GESTURE DETECTED] {gesture.value}", flush=True)
+
+            try:
+                if gesture == Gesture.SWIPE_RIGHT:
+                    self.media.volume_up()
+                    print("[ACTION] Volume increased", flush=True)
+                    self.system_log.record(
+                        "gesture", gesture.value, "success", "volume_up"
+                    )
+                    return True
+
+                if gesture == Gesture.SWIPE_LEFT:
+                    self.media.volume_down()
+                    print("[ACTION] Volume decreased", flush=True)
+                    self.system_log.record(
+                        "gesture", gesture.value, "success", "volume_down"
+                    )
+                    return True
+
+            except Exception as exc:
+                print(f"[GESTURE ERROR] {exc}", flush=True)
+                return False
+
         return False
 
     def _execute(self, intent: CommandIntent) -> None:

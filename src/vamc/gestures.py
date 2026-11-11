@@ -1,5 +1,4 @@
 from __future__ import annotations
-
 from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Callable, Protocol, Sequence
@@ -31,45 +30,102 @@ class GestureClassifier:
             for tip, pip in zip(self._FINGER_TIPS, self._FINGER_PIPS)
         )
 
-
 @dataclass
 class SwipeDetector:
-    """Detects horizontal movement between successive wrist landmarks."""
+    """Detect deliberate horizontal swipes using a rolling position window."""
 
-    threshold: float = 0.18
-    _previous_x: float | None = None
+    threshold: float = 0.16
+    cooldown_seconds: float = 0.65
+    window_size: int = 8
+
+    _positions: list[float] = None
+    _last_trigger: float = 0.0
+
+    def __post_init__(self) -> None:
+        from dataclasses import field
+        self._positions = []
 
     def detect(self, landmarks: Sequence[Any]) -> Gesture | None:
+        from time import monotonic
+
         if not landmarks:
-            self._previous_x = None
+            self._positions.clear()
             return None
+
         current_x = _coordinates(landmarks[0])[0]
-        if self._previous_x is None:
-            self._previous_x = current_x
+        self._positions.append(current_x)
+
+        if len(self._positions) > self.window_size:
+            self._positions.pop(0)
+
+        if len(self._positions) < self.window_size:
             return None
-        delta = current_x - self._previous_x
-        self._previous_x = current_x
+
+        now = monotonic()
+        if now - self._last_trigger < self.cooldown_seconds:
+            return None
+
+        delta = self._positions[-1] - self._positions[0]
+
         if abs(delta) < self.threshold:
             return None
-        return Gesture.SWIPE_RIGHT if delta > 0 else Gesture.SWIPE_LEFT
 
+        self._last_trigger = now
+        self._positions.clear()
+
+        return (
+            Gesture.SWIPE_RIGHT
+            if delta > 0
+            else Gesture.SWIPE_LEFT
+        )
 
 class MediaPipeHandLandmarker:
-    """Optional MediaPipe adapter that returns the first detected hand's landmarks."""
+    """MediaPipe Tasks adapter returning the first detected hand's landmarks."""
 
-    def __init__(self, max_num_hands: int = 1) -> None:
+    def __init__(
+        self,
+        max_num_hands: int = 1,
+        model_path: str = "models/hand_landmarker.task",
+    ) -> None:
         try:
             import mediapipe as mp
+            from mediapipe.tasks import python
+            from mediapipe.tasks.python import vision
         except ImportError as exc:
-            raise RuntimeError("Install mediapipe to use hand landmark detection") from exc
-        self._hands = mp.solutions.hands.Hands(max_num_hands=max_num_hands)
+            raise RuntimeError(
+                "Install a compatible mediapipe package to use hand detection"
+            ) from exc
+
+        from pathlib import Path
+
+        model_file = Path(model_path)
+        if not model_file.is_file():
+            raise FileNotFoundError(
+                f"Hand landmarker model not found: {model_file}"
+            )
+
+        options = vision.HandLandmarkerOptions(
+            base_options=python.BaseOptions(
+                model_asset_path=str(model_file.resolve())
+            ),
+            running_mode=vision.RunningMode.IMAGE,
+            num_hands=max_num_hands,
+        )
+
+        self._mp = mp
+        self._landmarker = vision.HandLandmarker.create_from_options(options)
 
     def detect(self, image: Any) -> list[Any]:
-        result = self._hands.process(image)
-        if not result.multi_hand_landmarks:
-            return []
-        return list(result.multi_hand_landmarks[0].landmark)
+        mp_image = self._mp.Image(
+            image_format=self._mp.ImageFormat.SRGB,
+            data=image,
+        )
+        result = self._landmarker.detect(mp_image)
 
+        if not result.hand_landmarks:
+            return []
+
+        return list(result.hand_landmarks[0])
 
 class FrameCapture(Protocol):
     def read(self) -> tuple[bool, Any]: ...

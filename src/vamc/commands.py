@@ -50,11 +50,33 @@ class IntentMapper:
             "turn off the sound",
             "mute the audio",
         ),
-        CommandIntent.UNMUTE: ("unmute", "sound on", "turn sound on", "enable sound"),
+        CommandIntent.UNMUTE: (
+            "unmute",
+            "on mute",
+            "sound on",
+            "turn sound on",
+            "enable sound",
+        ),
+
+        CommandIntent.PAUSE: (
+            "pause",
+            "stop",
+            "stop playback",
+            "stop play back",
+        ),
         CommandIntent.PLAY: ("play", "resume"),
-        CommandIntent.PAUSE: ("pause", "stop playback"),
-        CommandIntent.NEXT: ("next", "next track"),
-        CommandIntent.PREVIOUS: ("previous", "previous track"),
+
+        CommandIntent.NEXT: (
+            "next",
+            "next track",
+            "skip",
+        ),
+
+        CommandIntent.PREVIOUS: (
+            "previous",
+            "previous track",
+            "go back",
+        ),
     }
 
     def __init__(self, custom_phrases: dict[str, CommandIntent] | None = None) -> None:

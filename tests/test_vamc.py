@@ -313,29 +313,37 @@ def test_fist_classifier_requires_all_four_fingers_folded():
 
 
 def test_swipe_detector_maps_horizontal_motion_to_volume_direction():
-    detector = SwipeDetector(threshold=0.1)
+    detector = SwipeDetector(threshold=0.1, cooldown_seconds=0, window_size=2)
+
     assert detector.detect([(0.2, 0.5)]) is None
     assert detector.detect([(0.4, 0.5)]) == Gesture.SWIPE_RIGHT
+
+    detector.detect([])
+
+    assert detector.detect([(0.4, 0.5)]) is None
     assert detector.detect([(0.2, 0.5)]) == Gesture.SWIPE_LEFT
-
-
 def test_gestures_control_volume_and_toggle_playback():
     controller, media, _ = make_controller()
+    controller.swipe_detector.window_size = 2
+
     open_hand = make_landmarks(0.3)
     open_hand[0] = (0.2, 0.5)
     fist = make_landmarks(0.7)
+
     assert not controller.handle_gesture(open_hand)
-    assert controller.handle_gesture([(0.2, 0.5)] + open_hand[1:]) is False
-    assert controller.handle_gesture([(0.4, 0.5)] + open_hand[1:])
+
+    right = [(0.4, 0.5)] + open_hand[1:]
+    controller.handle_gesture(open_hand)
+    assert controller.handle_gesture(right)
     assert media.volume == 60
+
     assert controller.handle_gesture(fist)
     assert media.playing
     assert not controller.handle_gesture(fist)
+
     assert controller.handle_gesture(open_hand) is False
     assert controller.handle_gesture(fist)
     assert not media.playing
-
-
 def test_system_feedback_speaks_success_and_updates_indicator(monkeypatch):
     calls = []
 
@@ -356,7 +364,7 @@ def test_system_feedback_speaks_success_and_updates_indicator(monkeypatch):
     feedback.state(FeedbackState.PROCESSING)
     feedback.error("Command failed")
     assert indicator.states == [FeedbackState.LISTENING, FeedbackState.PROCESSING]
-    assert calls == [(("espeak", "Command failed"), {"check": True, "capture_output": True})]
+    assert calls == [(("say", "Command failed"), {"check": True, "capture_output": True})]
 
 
 def test_config_store_persists_wifi_and_wake_word(tmp_path):
